@@ -4,7 +4,7 @@
       "path": "pages/index/index",
       "style": {
         "navigationStyle": "custom",
-        "navigationBarTitleText": "好味小馆",
+        "navigationBarTitleText": "MONGA·艋舺",
         "navigationBarBackgroundColor": "#f6f7f9",
         "navigationBarTextStyle": "black",
         "backgroundColor": "#f6f7f9",
@@ -32,6 +32,15 @@
       "path": "pages/checkout/index",
       "style": {
         "navigationBarTitleText": "确认订单",
+        "navigationBarBackgroundColor": "#f6f4f0",
+        "navigationBarTextStyle": "black",
+        "backgroundColor": "#f6f4f0"
+      }
+    },
+    {
+      "path": "pages/payment/index",
+      "style": {
+        "navigationBarTitleText": "选择支付方式",
         "navigationBarBackgroundColor": "#f6f4f0",
         "navigationBarTextStyle": "black",
         "backgroundColor": "#f6f4f0"
@@ -112,6 +121,26 @@
             "navigationBarTextStyle": "black",
             "backgroundColor": "#f4f2ed"
           }
+        },
+        {
+          "path": "pages/membership/index",
+          "style": {
+            "navigationBarTitleText": "会员等级",
+            "navigationBarBackgroundColor": "#f5f2ec",
+            "navigationBarTextStyle": "black",
+            "backgroundColor": "#f5f2ec",
+            "enablePullDownRefresh": true
+          }
+        },
+        {
+          "path": "pages/wallet/index",
+          "style": {
+            "navigationBarTitleText": "储值余额",
+            "navigationBarBackgroundColor": "#f5f2ec",
+            "navigationBarTextStyle": "black",
+            "backgroundColor": "#f5f2ec",
+            "enablePullDownRefresh": true
+          }
         }
       ]
     }
@@ -124,14 +153,14 @@
   },
   "globalStyle": {
     "navigationBarTextStyle": "black",
-    "navigationBarTitleText": "好味小馆",
+    "navigationBarTitleText": "MONGA·艋舺",
     "navigationBarBackgroundColor": "#ffffff",
     "backgroundColor": "#f6f7f9",
     "backgroundTextStyle": "light"
   },
   "tabBar": {
     "color": "#8a929e",
-    "selectedColor": "#b86a49",
+    "selectedColor": "#c21850",
     "backgroundColor": "#ffffff",
     "borderStyle": "white",
     "list": [

@@ -27,8 +27,12 @@ struct OrderSettings {
     dine_in_enabled: bool,
     takeaway_enabled: bool,
     delivery_enabled: bool,
+    store_latitude: Option<f64>,
+    store_longitude: Option<f64>,
+    delivery_radius_km: f64,
+    delivery_free_radius_km: f64,
     delivery_minimum_amount: f64,
-    delivery_fee: f64,
+    delivery_fee_per_km: f64,
 }
 
 #[derive(Debug, FromRow)]
@@ -70,6 +74,7 @@ struct PaymentOrder {
     payment_status: String,
     subtotal_cents: i64,
     discount_cents: i64,
+    total_cents: i64,
     points_earned: i64,
     is_unexpired: bool,
 }
@@ -94,7 +99,7 @@ impl OrdersRepository {
             "SELECT o.id, o.order_number, o.customer_id, \
              COALESCE(NULLIF(c.nickname, ''), CONCAT('微信用户', LPAD(c.id, 6, '0'))) AS customer_name, \
              o.fulfillment_mode, o.table_number, o.delivery_recipient_name, o.delivery_phone, \
-             o.delivery_address, o.status, o.payment_status, o.subtotal_cents, o.discount_cents, o.delivery_fee_cents, \
+             o.delivery_address, o.status, o.payment_status, o.payment_method, o.subtotal_cents, o.discount_cents, o.delivery_fee_cents, \
              o.total_cents, o.points_earned, DATE_FORMAT(o.expires_at, '%Y-%m-%d %H:%i:%s') AS expires_at, \
              DATE_FORMAT(o.created_at, '%Y-%m-%d %H:%i:%s') AS created_at \
              FROM restaurant_orders o JOIN customers c ON c.id = o.customer_id \
@@ -105,6 +110,15 @@ impl OrdersRepository {
         .await?;
 
         self.attach_items(records).await
+    }
+
+    pub(crate) async fn get_store_location(&self) -> Result<(Option<f64>, Option<f64>), ApiError> {
+        sqlx::query_as::<_, (Option<f64>, Option<f64>)>(
+            "SELECT store_latitude, store_longitude FROM restaurant_settings WHERE id = 1",
+        )
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| ApiError::service_unavailable("门店配置暂不可用"))
     }
 
     pub(crate) async fn list_for_admin(
@@ -128,7 +142,7 @@ impl OrdersRepository {
             "SELECT o.id, o.order_number, o.customer_id, \
              COALESCE(NULLIF(c.nickname, ''), CONCAT('微信用户', LPAD(c.id, 6, '0'))) AS customer_name, \
              o.fulfillment_mode, o.table_number, o.delivery_recipient_name, o.delivery_phone, \
-             o.delivery_address, o.status, o.payment_status, o.subtotal_cents, o.discount_cents, o.delivery_fee_cents, \
+             o.delivery_address, o.status, o.payment_status, o.payment_method, o.subtotal_cents, o.discount_cents, o.delivery_fee_cents, \
              o.total_cents, o.points_earned, DATE_FORMAT(o.expires_at, '%Y-%m-%d %H:%i:%s') AS expires_at, \
              DATE_FORMAT(o.created_at, '%Y-%m-%d %H:%i:%s') AS created_at \
              FROM restaurant_orders o JOIN customers c ON c.id = o.customer_id WHERE 1 = 1",
@@ -203,6 +217,7 @@ impl OrdersRepository {
                 delivery_address: record.delivery_address,
                 status: record.status,
                 payment_status: record.payment_status,
+                payment_method: record.payment_method,
                 subtotal_cents: record.subtotal_cents,
                 discount_cents: record.discount_cents,
                 delivery_fee_cents: record.delivery_fee_cents,
@@ -219,23 +234,27 @@ impl OrdersRepository {
         &self,
         customer_id: i64,
         input: OrderInput,
+        riding_route: Option<(f64, f64, f64)>,
     ) -> Result<Order, ApiError> {
         let mut tx = self.pool.begin().await?;
 
         // Serialize submissions per customer; this makes request-key retries safe and prevents duplicate stock deductions.
-        let customer_points: Option<i64> =
-            sqlx::query_scalar("SELECT points FROM customers WHERE id = ? FOR UPDATE")
+        let customer_account: Option<(i64, i64)> =
+            sqlx::query_as("SELECT points, balance_cents FROM customers WHERE id = ? FOR UPDATE")
                 .bind(customer_id)
                 .fetch_optional(&mut *tx)
                 .await?;
-        let customer_points =
-            customer_points.ok_or_else(|| ApiError::unauthorized("登录已过期，请重新登录"))?;
+        let (customer_points, customer_balance_cents) =
+            customer_account.ok_or_else(|| ApiError::unauthorized("登录已过期，请重新登录"))?;
         if customer_points < 0 {
             return Err(ApiError::conflict("会员积分数据异常，请联系门店"));
         }
+        if customer_balance_cents < 0 {
+            return Err(ApiError::conflict("储值余额数据异常，请联系门店"));
+        }
 
         if let Some(existing) = sqlx::query_as::<_, Order>(
-            "SELECT order_number, fulfillment_mode, status, payment_status, subtotal_cents, discount_cents, \
+            "SELECT order_number, fulfillment_mode, status, payment_status, payment_method, subtotal_cents, discount_cents, \
              delivery_fee_cents, total_cents, points_earned FROM restaurant_orders \
              WHERE customer_id = ? AND request_key = ?",
         )
@@ -249,7 +268,7 @@ impl OrdersRepository {
         }
 
         let member_discount_rate: f64 = sqlx::query_scalar(
-            "SELECT CAST(discount_rate AS DOUBLE) FROM membership_tiers \
+            "SELECT discount_rate + 0e0 FROM membership_tiers \
              WHERE required_points <= ? ORDER BY required_points DESC LIMIT 1",
         )
         .bind(customer_points)
@@ -258,8 +277,9 @@ impl OrdersRepository {
         .unwrap_or(1.0);
 
         let settings = sqlx::query_as::<_, OrderSettings>(
-            "SELECT is_open, dine_in_enabled, takeaway_enabled, delivery_enabled, \
-             delivery_minimum_amount, delivery_fee FROM restaurant_settings WHERE id = 1 FOR UPDATE",
+            "SELECT is_open, dine_in_enabled, takeaway_enabled, delivery_enabled, store_latitude, store_longitude, \
+             delivery_radius_km, delivery_free_radius_km, delivery_minimum_amount, delivery_fee_per_km \
+             FROM restaurant_settings WHERE id = 1 FOR UPDATE",
         )
         .fetch_optional(&mut *tx)
         .await?
@@ -292,6 +312,30 @@ impl OrdersRepository {
                 .await?
                 .ok_or_else(|| ApiError::bad_request("收货地址不存在，请重新选择"))?,
             )
+        } else {
+            None
+        };
+        let delivery_distance_km = if input.fulfillment_mode == "delivery" {
+            let store_latitude = settings
+                .store_latitude
+                .ok_or_else(|| ApiError::conflict("门店位置尚未配置，请联系门店"))?;
+            let store_longitude = settings
+                .store_longitude
+                .ok_or_else(|| ApiError::conflict("门店位置尚未配置，请联系门店"))?;
+            let (route_origin_latitude, route_origin_longitude, distance) = riding_route
+                .ok_or_else(|| ApiError::service_unavailable("骑行路线距离暂不可用，请稍后重试"))?;
+            if (store_latitude - route_origin_latitude).abs() > 0.000001
+                || (store_longitude - route_origin_longitude).abs() > 0.000001
+            {
+                return Err(ApiError::conflict("门店位置已更新，请刷新结算页后重试"));
+            }
+            if distance > settings.delivery_radius_km {
+                return Err(ApiError::conflict(format!(
+                    "配送位置超出门店配送范围（{:.1} 公里）",
+                    settings.delivery_radius_km
+                )));
+            }
+            Some(distance)
         } else {
             None
         };
@@ -380,34 +424,92 @@ impl OrdersRepository {
                 )));
             }
         }
-        let delivery_fee_cents = if delivery_address.is_some() {
-            to_cents(settings.delivery_fee)?
-        } else {
-            0
-        };
+        let delivery_fee_cents = delivery_distance_km
+            .map(|distance| {
+                calculate_delivery_fee_cents(
+                    distance,
+                    settings.delivery_free_radius_km,
+                    settings.delivery_fee_per_km,
+                )
+            })
+            .transpose()?
+            .unwrap_or(0);
         let merchandise_total_cents = subtotal_cents - discount_cents;
         let total_cents = merchandise_total_cents
             .checked_add(delivery_fee_cents)
             .ok_or_else(|| ApiError::bad_request("订单金额超出范围"))?;
+        let is_wallet_payment = input.payment_method.as_deref() == Some("wallet");
+        if is_wallet_payment && customer_balance_cents < total_cents {
+            return Err(ApiError::conflict(format!(
+                "储值余额不足，当前余额 ¥{:.2}，本单需 ¥{:.2}",
+                customer_balance_cents as f64 / 100.0,
+                total_cents as f64 / 100.0
+            )));
+        }
+        let points_earned = if is_wallet_payment {
+            let (spend_step_cents, points_per_step): (i64, i64) = sqlx::query_as(
+                "SELECT spend_step_cents, points_per_step FROM membership_settings WHERE id = 1",
+            )
+            .fetch_one(&mut *tx)
+            .await?;
+            calculate_earned_points(merchandise_total_cents, spend_step_cents, points_per_step)?
+        } else {
+            0
+        };
+        let wallet_balance_after = if is_wallet_payment {
+            customer_balance_cents
+                .checked_sub(total_cents)
+                .ok_or_else(|| ApiError::conflict("储值余额不足，请刷新后重试"))?
+        } else {
+            customer_balance_cents
+        };
+        let customer_points_after = customer_points
+            .checked_add(points_earned)
+            .ok_or_else(|| ApiError::conflict("会员积分超出可记录范围"))?;
+        let status = if is_wallet_payment {
+            "paid"
+        } else {
+            "pending_payment"
+        };
+        let payment_status = if is_wallet_payment { "paid" } else { "unpaid" };
+        let payment_method = if is_wallet_payment {
+            "wallet"
+        } else {
+            "offline"
+        };
         let order_number = make_order_number();
-        let (recipient_name, recipient_phone, address) = delivery_address
+        let (recipient_name, recipient_phone) = delivery_address
             .as_ref()
             .map(|address| {
                 (
                     Some(address.recipient_name.as_str()),
                     Some(address.phone.as_str()),
-                    Some(address.full_address.as_str()),
                 )
             })
-            .unwrap_or((None, None, None));
+            .unwrap_or((None, None));
+        let address = match (
+            delivery_address.as_ref(),
+            input.delivery_location_address.as_deref(),
+        ) {
+            (Some(address), Some(location)) => {
+                let combined = format!("{location}（收件信息：{}）", address.full_address);
+                if combined.chars().count() > 500 {
+                    return Err(ApiError::bad_request(
+                        "收货地址过长，请缩短地图位置或详细地址",
+                    ));
+                }
+                Some(combined)
+            }
+            _ => None,
+        };
 
         let result = sqlx::query(
             "INSERT INTO restaurant_orders \
              (order_number, customer_id, request_key, fulfillment_mode, table_number, \
-              delivery_recipient_name, delivery_phone, delivery_address, status, payment_status, \
-              expires_at, subtotal_cents, discount_cents, delivery_fee_cents, total_cents) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending_payment', 'unpaid', \
-                     DATE_ADD(CURRENT_TIMESTAMP(3), INTERVAL 15 MINUTE), ?, ?, ?, ?)",
+              delivery_recipient_name, delivery_phone, delivery_address, status, payment_status, payment_method, \
+              expires_at, subtotal_cents, discount_cents, delivery_fee_cents, total_cents, points_earned) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, \
+                     DATE_ADD(CURRENT_TIMESTAMP(3), INTERVAL 15 MINUTE), ?, ?, ?, ?, ?)",
         )
         .bind(&order_number)
         .bind(customer_id)
@@ -417,10 +519,14 @@ impl OrdersRepository {
         .bind(recipient_name)
         .bind(recipient_phone)
         .bind(address)
+        .bind(status)
+        .bind(payment_status)
+        .bind(payment_method)
         .bind(subtotal_cents)
         .bind(discount_cents)
         .bind(delivery_fee_cents)
         .bind(total_cents)
+        .bind(points_earned)
         .execute(&mut *tx)
         .await?;
         let order_id = result.last_insert_id() as i64;
@@ -459,24 +565,46 @@ impl OrdersRepository {
             }
         }
 
+        if is_wallet_payment {
+            sqlx::query("UPDATE customers SET balance_cents = ?, points = ? WHERE id = ?")
+                .bind(wallet_balance_after)
+                .bind(customer_points_after)
+                .bind(customer_id)
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query(
+                "INSERT INTO customer_wallet_transactions \
+                 (customer_id, transaction_type, delta_cents, balance_after_cents, order_number, note) \
+                 VALUES (?, 'order_payment', ?, ?, ?, ?)",
+            )
+            .bind(customer_id)
+            .bind(-total_cents)
+            .bind(wallet_balance_after)
+            .bind(&order_number)
+            .bind(format!("订单支付 {order_number}"))
+            .execute(&mut *tx)
+            .await?;
+        }
+
         tx.commit().await?;
         Ok(Order {
             order_number,
             fulfillment_mode: input.fulfillment_mode,
-            status: "pending_payment".into(),
-            payment_status: "unpaid".into(),
+            status: status.into(),
+            payment_status: payment_status.into(),
+            payment_method: payment_method.into(),
             subtotal_cents,
             discount_cents,
             delivery_fee_cents,
             total_cents,
-            points_earned: 0,
+            points_earned,
         })
     }
 
     pub(crate) async fn mark_paid(&self, order_number: &str) -> Result<PaidOrderResult, ApiError> {
         let mut tx = self.pool.begin().await?;
         let order = sqlx::query_as::<_, PaymentOrder>(
-            "SELECT id, customer_id, status, payment_status, subtotal_cents, discount_cents, points_earned, \
+            "SELECT id, customer_id, status, payment_status, subtotal_cents, discount_cents, total_cents, points_earned, \
              (expires_at > CURRENT_TIMESTAMP(3)) AS is_unexpired \
              FROM restaurant_orders WHERE order_number = ? FOR UPDATE",
         )
@@ -532,6 +660,111 @@ impl OrdersRepository {
             .bind(order.customer_id)
             .execute(&mut *tx)
             .await?;
+        tx.commit().await?;
+
+        Ok(PaidOrderResult {
+            order_number: order_number.to_owned(),
+            payment_status: "paid".into(),
+            status: "paid".into(),
+            points_earned,
+        })
+    }
+
+    pub(crate) async fn pay_wallet(
+        &self,
+        customer_id: i64,
+        order_number: &str,
+    ) -> Result<PaidOrderResult, ApiError> {
+        let mut tx = self.pool.begin().await?;
+        let order = sqlx::query_as::<_, PaymentOrder>(
+            "SELECT id, customer_id, status, payment_status, subtotal_cents, discount_cents, total_cents, points_earned, \
+             (expires_at > CURRENT_TIMESTAMP(3)) AS is_unexpired \
+             FROM restaurant_orders WHERE order_number = ? FOR UPDATE",
+        )
+        .bind(order_number)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| ApiError::not_found("订单不存在"))?;
+
+        if order.customer_id != customer_id {
+            return Err(ApiError::not_found("订单不存在"));
+        }
+        if order.payment_status == "paid" {
+            tx.commit().await?;
+            return Ok(PaidOrderResult {
+                order_number: order_number.to_owned(),
+                payment_status: order.payment_status,
+                status: order.status,
+                points_earned: order.points_earned,
+            });
+        }
+        if order.status != "pending_payment" || !order.is_unexpired {
+            return Err(ApiError::conflict("订单已取消或超时，不能支付"));
+        }
+
+        let (customer_points, balance_cents): (i64, i64) = sqlx::query_as(
+            "SELECT points, balance_cents FROM customers WHERE id = ? FOR UPDATE",
+        )
+        .bind(customer_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if balance_cents < order.total_cents {
+            return Err(ApiError::conflict(format!(
+                "储值余额不足，当前余额 ¥{:.2}，本单需 ¥{:.2}",
+                balance_cents as f64 / 100.0,
+                order.total_cents as f64 / 100.0
+            )));
+        }
+        if customer_points < 0 {
+            return Err(ApiError::conflict("会员积分数据异常，请联系门店"));
+        }
+        let (spend_step_cents, points_per_step): (i64, i64) = sqlx::query_as(
+            "SELECT spend_step_cents, points_per_step FROM membership_settings WHERE id = 1",
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+        let paid_merchandise_cents = order
+            .subtotal_cents
+            .checked_sub(order.discount_cents)
+            .filter(|amount| *amount >= 0)
+            .ok_or_else(|| ApiError::conflict("订单优惠金额异常"))?;
+        let points_earned = calculate_earned_points(
+            paid_merchandise_cents,
+            spend_step_cents,
+            points_per_step,
+        )?;
+        let points_after = customer_points
+            .checked_add(points_earned)
+            .ok_or_else(|| ApiError::conflict("会员积分超出可记录范围"))?;
+        let balance_after = balance_cents
+            .checked_sub(order.total_cents)
+            .ok_or_else(|| ApiError::conflict("储值余额不足，请刷新后重试"))?;
+
+        sqlx::query(
+            "UPDATE restaurant_orders SET payment_status = 'paid', payment_method = 'wallet', status = 'paid', points_earned = ? WHERE id = ?",
+        )
+        .bind(points_earned)
+        .bind(order.id)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query("UPDATE customers SET balance_cents = ?, points = ? WHERE id = ?")
+            .bind(balance_after)
+            .bind(points_after)
+            .bind(customer_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query(
+            "INSERT INTO customer_wallet_transactions \
+             (customer_id, transaction_type, delta_cents, balance_after_cents, order_number, note) \
+             VALUES (?, 'order_payment', ?, ?, ?, ?)",
+        )
+        .bind(customer_id)
+        .bind(-order.total_cents)
+        .bind(balance_after)
+        .bind(order_number)
+        .bind(format!("订单支付 {order_number}"))
+        .execute(&mut *tx)
+        .await?;
         tx.commit().await?;
 
         Ok(PaidOrderResult {
@@ -706,6 +939,33 @@ fn resolve_selections(
     Ok((price_cents, normalized))
 }
 
+#[cfg(test)]
+fn haversine_distance_km(
+    first_latitude: f64,
+    first_longitude: f64,
+    second_latitude: f64,
+    second_longitude: f64,
+) -> f64 {
+    const EARTH_RADIUS_KM: f64 = 6_371.0088;
+    let to_radians = |degrees: f64| degrees.to_radians();
+    let latitude_delta = to_radians(second_latitude - first_latitude);
+    let longitude_delta = to_radians(second_longitude - first_longitude);
+    let first_latitude = to_radians(first_latitude);
+    let second_latitude = to_radians(second_latitude);
+    let haversine = (latitude_delta / 2.0).sin().powi(2)
+        + first_latitude.cos() * second_latitude.cos() * (longitude_delta / 2.0).sin().powi(2);
+    2.0 * EARTH_RADIUS_KM * haversine.clamp(0.0, 1.0).sqrt().asin()
+}
+
+fn calculate_delivery_fee_cents(
+    distance_km: f64,
+    free_radius_km: f64,
+    fee_per_km: f64,
+) -> Result<i64, ApiError> {
+    let chargeable_kilometers = (distance_km - free_radius_km - 1e-9).max(0.0).ceil();
+    to_cents(chargeable_kilometers * fee_per_km)
+}
+
 fn to_cents(amount: f64) -> Result<i64, ApiError> {
     if !amount.is_finite() || amount < 0.0 || amount > (i64::MAX as f64 / 100.0) {
         return Err(ApiError::bad_request("菜品价格配置无效，请联系门店"));
@@ -716,6 +976,24 @@ fn to_cents(amount: f64) -> Result<i64, ApiError> {
         return Err(ApiError::bad_request("菜品价格最多支持两位小数"));
     }
     Ok(rounded as i64)
+}
+
+#[cfg(test)]
+mod delivery_fee_tests {
+    use super::{calculate_delivery_fee_cents, haversine_distance_km};
+
+    #[test]
+    fn charges_only_started_kilometers_beyond_free_radius() {
+        assert_eq!(calculate_delivery_fee_cents(3.0, 3.0, 2.5).unwrap(), 0);
+        assert_eq!(calculate_delivery_fee_cents(3.1, 3.0, 2.5).unwrap(), 250);
+        assert_eq!(calculate_delivery_fee_cents(4.0, 3.0, 2.5).unwrap(), 250);
+        assert_eq!(calculate_delivery_fee_cents(4.01, 3.0, 2.5).unwrap(), 500);
+    }
+
+    #[test]
+    fn identical_coordinates_have_zero_distance() {
+        assert!(haversine_distance_km(31.2304, 121.4737, 31.2304, 121.4737) < 1e-9);
+    }
 }
 
 fn calculate_earned_points(

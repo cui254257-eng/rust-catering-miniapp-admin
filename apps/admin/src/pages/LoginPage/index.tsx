@@ -50,12 +50,12 @@ export default function LoginPage() {
             菜单、订单与门店运营，在这里一站打理。
           </Typography.Paragraph>
         </div>
-        <div className="login-showcase-foot">好味小馆 · 管理后台</div>
+        <div className="login-showcase-foot">MONGA·艋舺 · 管理后台</div>
       </section>
       <section className="login-form-wrap">
         <div className="login-form-card">
           <div className="login-mobile-brand">
-            <ShopOutlined /> 好味小馆
+            <ShopOutlined /> MONGA·艋舺
           </div>
           <Typography.Title level={2}>欢迎回来</Typography.Title>
           <Typography.Paragraph type="secondary">

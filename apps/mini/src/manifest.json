@@ -1,7 +1,7 @@
 {
-  "name": "好味小馆",
+  "name": "MONGA·艋舺",
   "appid": "__UNI__SHOP_DEMO",
-  "description": "好味小馆堂食点餐与外带预订",
+  "description": "MONGA·艋舺点餐与外带预订",
   "versionName": "0.1.0",
   "versionCode": "10",
   "transformPx": false,
@@ -13,6 +13,12 @@
       "postcss": true,
       "minified": true
     },
+    "permission": {
+      "scope.userLocation": {
+        "desc": "用于选择配送位置并计算配送距离和费用"
+      }
+    },
+    "requiredPrivateInfos": ["chooseLocation","chooseAddress"],
     "usingComponents": true
   }
 }

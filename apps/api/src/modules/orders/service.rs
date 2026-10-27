@@ -1,9 +1,9 @@
 use sqlx::MySqlPool;
 
-use crate::common::ApiError;
+use crate::{common::ApiError, modules::amap::AmapService};
 
 use super::{
-    dto::{AdminOrderQuery, OrderInput},
+    dto::{AdminOrderQuery, OrderInput, PaymentInput},
     entity::{AdminOrderPage, Order, OrderSummary, PaidOrderResult},
     repository::OrdersRepository,
 };
@@ -11,12 +11,14 @@ use super::{
 #[derive(Clone)]
 pub(crate) struct OrdersService {
     repository: OrdersRepository,
+    amap: AmapService,
 }
 
 impl OrdersService {
-    pub(crate) fn new(pool: MySqlPool) -> Self {
+    pub(crate) fn new(pool: MySqlPool, amap: AmapService) -> Self {
         Self {
             repository: OrdersRepository::new(pool),
+            amap,
         }
     }
 
@@ -26,7 +28,36 @@ impl OrdersService {
         mut input: OrderInput,
     ) -> Result<Order, ApiError> {
         validate(&mut input)?;
-        self.repository.create(customer_id, input).await
+        let riding_distance = if input.fulfillment_mode == "delivery" {
+            let (store_latitude, store_longitude) = self.repository.get_store_location().await?;
+            let store_latitude =
+                store_latitude.ok_or_else(|| ApiError::conflict("门店位置尚未配置，请联系门店"))?;
+            let store_longitude = store_longitude
+                .ok_or_else(|| ApiError::conflict("门店位置尚未配置，请联系门店"))?;
+            let route = self
+                .amap
+                .riding_distance(
+                    store_longitude,
+                    store_latitude,
+                    input
+                        .delivery_longitude
+                        .expect("delivery coordinates validated"),
+                    input
+                        .delivery_latitude
+                        .expect("delivery coordinates validated"),
+                )
+                .await?;
+            Some((
+                store_latitude,
+                store_longitude,
+                route.distance_meters as f64 / 1000.0,
+            ))
+        } else {
+            None
+        };
+        self.repository
+            .create(customer_id, input, riding_distance)
+            .await
     }
 
     pub(crate) async fn list_for_customer(
@@ -46,6 +77,19 @@ impl OrdersService {
 
     pub(crate) async fn mark_paid(&self, order_number: &str) -> Result<PaidOrderResult, ApiError> {
         self.repository.mark_paid(order_number).await
+    }
+
+    pub(crate) async fn pay(
+        &self,
+        customer_id: i64,
+        order_number: &str,
+        input: PaymentInput,
+    ) -> Result<PaidOrderResult, ApiError> {
+        let method = input.payment_method.trim();
+        if method != "wallet" {
+            return Err(ApiError::bad_request("暂不支持该支付方式"));
+        }
+        self.repository.pay_wallet(customer_id, order_number).await
     }
 
     pub(crate) async fn delete_admin_order(&self, order_number: &str) -> Result<(), ApiError> {
@@ -122,6 +166,18 @@ fn validate(input: &mut OrderInput) -> Result<(), ApiError> {
     ) {
         return Err(ApiError::bad_request("请选择有效的用餐方式"));
     }
+    input.payment_method = input
+        .payment_method
+        .take()
+        .map(|method| method.trim().to_owned())
+        .filter(|method| !method.is_empty());
+    if input
+        .payment_method
+        .as_deref()
+        .is_some_and(|method| method != "wallet")
+    {
+        return Err(ApiError::bad_request("暂不支持该支付方式"));
+    }
     if input.items.is_empty() || input.items.len() > 30 {
         return Err(ApiError::bad_request("点餐篮为空或菜品种类过多"));
     }
@@ -137,10 +193,34 @@ fn validate(input: &mut OrderInput) -> Result<(), ApiError> {
         if !input.address_id.is_some_and(|id| id > 0) {
             return Err(ApiError::bad_request("请选择外卖收货地址"));
         }
+        if !input
+            .delivery_latitude
+            .is_some_and(|latitude| (-90.0..=90.0).contains(&latitude))
+            || !input
+                .delivery_longitude
+                .is_some_and(|longitude| (-180.0..=180.0).contains(&longitude))
+        {
+            return Err(ApiError::bad_request("请在地图选择有效的配送位置"));
+        }
+        let location_address = input
+            .delivery_location_address
+            .take()
+            .unwrap_or_default()
+            .trim()
+            .to_owned();
+        if location_address.is_empty() || location_address.chars().count() > 255 {
+            return Err(ApiError::bad_request(
+                "地图位置地址不能为空且不能超过 255 个字",
+            ));
+        }
+        input.delivery_location_address = Some(location_address);
         input.table_number = None;
     } else {
         input.table_number = None;
         input.address_id = None;
+        input.delivery_latitude = None;
+        input.delivery_longitude = None;
+        input.delivery_location_address = None;
     }
 
     for item in &mut input.items {
@@ -167,8 +247,12 @@ mod tests {
         OrderInput {
             request_key: "order-123456".into(),
             fulfillment_mode: "takeaway".into(),
+            payment_method: None,
             table_number: None,
             address_id: None,
+            delivery_latitude: None,
+            delivery_longitude: None,
+            delivery_location_address: None,
             items: vec![OrderItemInput {
                 product_id: 1,
                 quantity: 1,
@@ -186,6 +270,16 @@ mod tests {
     }
 
     #[test]
+    fn accepts_wallet_payment_and_rejects_unknown_payment_methods() {
+        let mut input = sample();
+        input.payment_method = Some("wallet".into());
+        assert!(validate(&mut input).is_ok());
+
+        input.payment_method = Some("wechat".into());
+        assert!(validate(&mut input).is_err());
+    }
+
+    #[test]
     fn requires_a_table_for_dine_in() {
         let mut input = sample();
         input.fulfillment_mode = "dine_in".into();
@@ -200,6 +294,9 @@ mod tests {
         input.fulfillment_mode = "delivery".into();
         assert!(validate(&mut input).is_err());
         input.address_id = Some(2);
+        input.delivery_latitude = Some(31.2304);
+        input.delivery_longitude = Some(121.4737);
+        input.delivery_location_address = Some("上海市静安区南京西路".into());
         input.items[0].quantity = 100;
         assert!(validate(&mut input).is_err());
     }

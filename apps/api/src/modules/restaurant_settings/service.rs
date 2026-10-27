@@ -82,10 +82,14 @@ fn validate(input: &RestaurantSettingsInput) -> Result<(), ApiError> {
     if !input.delivery_radius_km.is_finite()
         || input.delivery_radius_km < 0.1
         || input.delivery_radius_km > 100.0
+        || !input.delivery_free_radius_km.is_finite()
+        || input.delivery_free_radius_km < 0.0
+        || input.delivery_free_radius_km > input.delivery_radius_km
         || !input.delivery_minimum_amount.is_finite()
         || input.delivery_minimum_amount < 0.0
-        || !input.delivery_fee.is_finite()
-        || input.delivery_fee < 0.0
+        || !input.delivery_fee_per_km.is_finite()
+        || input.delivery_fee_per_km < 0.0
+        || input.delivery_fee_per_km > 1000.0
     {
         return Err(ApiError::bad_request(
             "配送范围、起送金额和配送费必须是有效的非负数",
@@ -93,6 +97,20 @@ fn validate(input: &RestaurantSettingsInput) -> Result<(), ApiError> {
     }
     if input.delivery_enabled && input.store_address.trim().is_empty() {
         return Err(ApiError::bad_request("启用外卖配送前请填写门店地址"));
+    }
+    if input.store_latitude.is_some() != input.store_longitude.is_some()
+        || input
+            .store_latitude
+            .is_some_and(|latitude| !(-85.0..=85.0).contains(&latitude))
+        || input
+            .store_longitude
+            .is_some_and(|longitude| !(-180.0..=180.0).contains(&longitude))
+    {
+        return Err(ApiError::bad_request("门店经纬度无效，请检查坐标范围"));
+    }
+    if input.delivery_enabled && (input.store_latitude.is_none() || input.store_longitude.is_none())
+    {
+        return Err(ApiError::bad_request("启用外卖前请填写门店纬度和经度"));
     }
     if !input.dine_in_enabled && !input.takeaway_enabled && !input.delivery_enabled {
         return Err(ApiError::bad_request(

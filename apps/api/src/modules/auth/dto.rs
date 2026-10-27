@@ -37,6 +37,7 @@ pub(crate) struct ProfileResponse {
     pub(crate) avatar_data_url: Option<String>,
     pub(crate) member_level: i64,
     pub(crate) points: i64,
+    pub(crate) balance_cents: i64,
     pub(crate) discount_rate: f64,
     pub(crate) next_level: Option<i64>,
     pub(crate) next_level_points: Option<i64>,

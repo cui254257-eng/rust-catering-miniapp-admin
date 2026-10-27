@@ -89,7 +89,7 @@ async function saveProfile() {
       title: '保存失败',
       content: error instanceof Error ? error.message : '请稍后重试',
       showCancel: false,
-      confirmColor: '#b86a49',
+      confirmColor: '#c21850',
     })
   } finally {
     saving.value = false
@@ -159,7 +159,7 @@ async function saveProfile() {
 .nickname-input { height: 43px; box-sizing: border-box; padding: 0 12px; border: 1px solid #eee7de; border-radius: 11px; background: #fff; color: #382b21; font-size: 13px; }
 .input-placeholder { color: #b8afa4; }
 .field-hint { margin-top: 7px; color: #aaa093; font-size: 9px; text-align: right; }
-.save-button { display: flex; height: 46px; align-items: center; justify-content: center; margin: 22px 0 0; border: 0; border-radius: 14px; background: #b86a49; box-shadow: 0 7px 16px rgb(143 78 50 / 16%); color: #fffaf4; font-size: 13px; font-weight: 700; line-height: 46px; }
+.save-button { display: flex; height: 46px; align-items: center; justify-content: center; margin: 22px 0 0; border: 0; border-radius: 14px; background: #c21850; box-shadow: 0 7px 16px rgb(194 24 80 / 18%); color: #fff; font-size: 13px; font-weight: 700; line-height: 46px; }
 .save-button::after { border: 0; }
 .save-button[disabled] { opacity: .6; }
 .saved-note { display: block; margin-top: 12px; color: #aaa093; font-size: 10px; text-align: center; }

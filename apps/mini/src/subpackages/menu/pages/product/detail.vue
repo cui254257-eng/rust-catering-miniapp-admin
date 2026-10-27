@@ -52,7 +52,10 @@ function addToCart(showToast = true) {
       ? [{ group_name: group.name, option_name: selectedSpecifications.value[group.name] }]
       : [])
   const key = `${product.value.id}:${selections.map((item) => `${item.group_name}：${item.option_name}`).join('|')}`
-  const currentQuantity = getCartLines().find((line) => line.key === key)?.quantity ?? 0
+  const currentQuantity = getCartLines().reduce(
+    (total, line) => total + (line.product_id === product.value!.id ? line.quantity : 0),
+    0,
+  )
   if (currentQuantity + 1 > product.value.stock) {
     uni.showToast({ title: `最多可点 ${product.value.stock} 份`, icon: 'none' })
     return false
@@ -77,11 +80,6 @@ function addToCart(showToast = true) {
     setTimeout(() => uni.navigateBack(), 250)
   }
   return true
-}
-
-function checkoutNow() {
-  if (!addToCart(false)) return
-  uni.navigateTo({ url: '/pages/checkout/index' })
 }
 
 function selectSpecification(groupName: string, optionName: string) {
@@ -125,8 +123,7 @@ function goBack() {
     </view>
     <view class="detail-actions">
       <view class="add-button" :class="{ disabled: product.stock <= 0 || product.status !== 'active' }" @tap="addToCart">加入购物篮</view>
-      <view class="checkout-button" :class="{ disabled: product.stock <= 0 || product.status !== 'active' }" @tap="checkoutNow">立即支付</view>
-      <view class="back-menu" @tap="goBack">还要加菜</view>
+      <view class="back-menu" @tap="goBack">返回菜单</view>
     </view>
   </view>
   <view v-else class="flex min-h-screen flex-col items-center justify-center px-6 text-center">
@@ -144,19 +141,18 @@ function goBack() {
 .member-discount-tag { display: inline-block; margin: 8px 0 0 6px; padding: 4px 8px; border-radius: 10px; background: #f6efde; color: #967340; font-size: 9px; }
 .price-row { display: flex; align-items: baseline; gap: 8px; margin-top: 18px; }
 .price-label { color: #a49d93; font-size: 10px; }
-.product-price { color: #b9573b; font-size: 24px; font-weight: 750; }
+.product-price { color: #c21850; font-size: 24px; font-weight: 750; }
 .specification-block { margin-top: 22px; padding-top: 16px; border-top: 1px solid #f2eee8; }
 .specification-title { margin-bottom: 10px; color: #423e37; font-size: 12px; font-weight: 700; }
-.required-label { margin-left: 8px; padding: 2px 5px; border-radius: 6px; background: #fff1e9; color: #bd6446; font-size: 8px; font-weight: 500; }
+.required-label { margin-left: 8px; padding: 2px 5px; border-radius: 6px; background: #fceaf0; color: #9b123f; font-size: 8px; font-weight: 500; }
 .specification-options { display: flex; flex-wrap: wrap; gap: 8px; }
 .specification-option { padding: 9px 13px; border: 1px solid #eee9e1; border-radius: 18px; background: #faf9f6; color: #77736b; font-size: 10px; }
-.specification-option.selected { border-color: #c77855; background: #fbf0e8; color: #a35337; box-shadow: inset 0 0 0 1px rgb(199 120 85 / 10%); }
+.specification-option.selected { border-color: #c21850; background: #fceaf0; color: #9b123f; box-shadow: inset 0 0 0 1px rgb(194 24 80 / 10%); }
 .stock-row { display: flex; align-items: center; justify-content: space-between; margin-top: 22px; padding-top: 15px; border-top: 1px solid #f2eee8; color: #9a948a; font-size: 10px; }
 .stock-value { color: #5a7657; font-weight: 600; }
 .detail-actions { position: fixed; z-index: 10; right: 0; bottom: 0; left: 0; display: flex; align-items: center; gap: 8px; padding: 10px 14px calc(10px + env(safe-area-inset-bottom)); border-top: 1px solid #f0ece5; background: rgb(255 255 255 / 97%); box-shadow: 0 -6px 24px rgb(49 39 22 / 5%); }
 .detail-actions > view { display: grid; min-height: 42px; place-items: center; border-radius: 22px; font-size: 10px; font-weight: 700; }
-.add-button { flex: 1.1; border: 1px solid #c77957; background: #fff; color: #a85e3f; }
-.checkout-button { flex: 1; background: #bd704f; color: #fff; }
+.add-button { flex: 1; border: 1px solid #c21850; background: #fff; color: #9b123f; }
 .back-menu { flex: 0 0 auto; padding: 0 7px; color: #898278; font-weight: 500 !important; }
 .detail-actions .disabled { opacity: .45; }
 </style>

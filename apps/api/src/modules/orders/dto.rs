@@ -14,9 +14,18 @@ pub(crate) struct AdminOrderQuery {
 pub(crate) struct OrderInput {
     pub(crate) request_key: String,
     pub(crate) fulfillment_mode: String,
+    pub(crate) payment_method: Option<String>,
     pub(crate) table_number: Option<String>,
     pub(crate) address_id: Option<i64>,
+    pub(crate) delivery_latitude: Option<f64>,
+    pub(crate) delivery_longitude: Option<f64>,
+    pub(crate) delivery_location_address: Option<String>,
     pub(crate) items: Vec<OrderItemInput>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct PaymentInput {
+    pub(crate) payment_method: String,
 }
 
 #[derive(Debug, Deserialize)]

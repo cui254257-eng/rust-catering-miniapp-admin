@@ -59,3 +59,18 @@ pub(crate) async fn create(
     let order = state.orders.create(customer_id, input).await?;
     Ok((StatusCode::CREATED, Json(order)))
 }
+
+pub(crate) async fn pay(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(order_number): Path<String>,
+    Json(input): Json<super::dto::PaymentInput>,
+) -> Result<Json<super::entity::PaidOrderResult>, ApiError> {
+    let customer_id = state.auth.authenticate(&headers).await?;
+    Ok(Json(
+        state
+            .orders
+            .pay(customer_id, &order_number, input)
+            .await?,
+    ))
+}

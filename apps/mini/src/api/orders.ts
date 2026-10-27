@@ -5,8 +5,12 @@ import { withCustomerSession } from './auth'
 export interface CreateOrderInput {
   request_key: string
   fulfillment_mode: 'dine_in' | 'takeaway' | 'delivery'
+  payment_method?: 'wallet'
   table_number?: string
   address_id?: number
+  delivery_latitude?: number
+  delivery_longitude?: number
+  delivery_location_address?: string
   items: Array<{
     product_id: number
     quantity: number
@@ -14,11 +18,14 @@ export interface CreateOrderInput {
   }>
 }
 
+export type PaymentMethod = 'wallet' | 'wechat'
+
 export interface CreatedOrder {
   order_number: string
   fulfillment_mode: CreateOrderInput['fulfillment_mode']
-  status: 'pending_payment'
-  payment_status: 'unpaid'
+  status: string
+  payment_status: string
+  payment_method: 'wallet' | 'offline'
   subtotal_cents: number
   discount_cents: number
   delivery_fee_cents: number
@@ -37,6 +44,7 @@ export interface OrderSummary {
   delivery_address: string | null
   status: string
   payment_status: string
+  payment_method: 'wallet' | 'offline'
   subtotal_cents: number
   discount_cents: number
   delivery_fee_cents: number
@@ -57,6 +65,14 @@ export interface OrderSummary {
 
 export function createOrder(input: CreateOrderInput) {
   return withCustomerSession(() => request<CreatedOrder>('/orders', 'POST', input))
+}
+
+export function payOrder(orderNumber: string, paymentMethod: PaymentMethod) {
+  return withCustomerSession(() => request<{ order_number: string; payment_status: string; status: string; points_earned: number }>(
+    `/orders/${encodeURIComponent(orderNumber)}/pay`,
+    'POST',
+    { payment_method: paymentMethod },
+  ))
 }
 
 export function getMyOrders() {

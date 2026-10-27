@@ -28,10 +28,10 @@ export default function AdminLayout() {
     <Layout className="admin-shell">
       <Sider breakpoint="lg" collapsedWidth="0" className="admin-sider">
         <Link to="/dashboard" className="brand-lockup">
-          <span className="brand-mark">S</span>
+          <span className="brand-mark">M</span>
           <span>
-            <strong>HAO WEI</strong>
-            <small>管理后台</small>
+            <strong>MONGA·艋舺</strong>
+            <small>门店管理</small>
           </span>
         </Link>
         <Menu
@@ -52,7 +52,7 @@ export default function AdminLayout() {
       </Sider>
       <Layout>
         <div className="admin-topbar">
-          <Typography.Text type="secondary">好味小馆 · 门店管理</Typography.Text>
+          <Typography.Text type="secondary">MONGA·艋舺 · 门店管理</Typography.Text>
           <div className="admin-user">
             <span className="user-dot" />管理员
             <Button type="text" size="small" onClick={() => {

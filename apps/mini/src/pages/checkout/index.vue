@@ -8,6 +8,7 @@ import {
   type CartLine,
 } from "@/api/cart";
 import { getAddresses, type Address } from "@/api/addresses";
+import { getRidingDistance } from "@/api/amap";
 import { createOrder, type CreateOrderInput } from "@/api/orders";
 import { getCustomerProfile, type CustomerProfile } from "@/api/profile";
 import { getMembershipConfig, type MembershipConfig } from "@/api/membership";
@@ -16,21 +17,24 @@ import {
   type RestaurantSettings,
 } from "@/api/restaurant";
 
-type FulfillmentMode = "dine_in" | "takeaway" | "delivery";
+type FulfillmentMode = "takeaway" | "delivery";
 
 const lines = ref<CartLine[]>([]);
 const restaurant = ref<RestaurantSettings | null>(null);
 const deliveryAddress = ref<Address | null>(null);
+const deliveryCoordinates = ref<{ latitude: number; longitude: number } | null>(null);
+const ridingDistanceMeters = ref<number | null>(null);
+const ridingDistanceLoading = ref(false);
+const ridingDistanceError = ref("");
 const memberProfile = ref<CustomerProfile | null>(null);
 const membershipConfig = ref<MembershipConfig | null>(null);
 const mode = ref<FulfillmentMode>("takeaway");
-const tableNumber = ref("");
 const submitting = ref(false);
 const requestKey = ref("");
+let ridingDistanceRequestId = 0;
 const availableModes = computed(() => {
-  if (!restaurant.value) return [];
+  if (!restaurant.value) return ["takeaway", "delivery"] as FulfillmentMode[];
   const modes: FulfillmentMode[] = [];
-  if (restaurant.value.dine_in_enabled) modes.push("dine_in");
   if (restaurant.value.takeaway_enabled) modes.push("takeaway");
   if (restaurant.value.delivery_enabled) modes.push("delivery");
   return modes;
@@ -55,9 +59,33 @@ const memberDiscountCents = computed(() => {
   }, 0);
 });
 const deliveryFeeCents = computed(() =>
-  mode.value === "delivery" && restaurant.value
-    ? Math.round(restaurant.value.delivery_fee * 100)
+  mode.value === "delivery" && restaurant.value && deliveryDistanceKm.value !== null
+    ? Math.ceil(
+        Math.max(
+          0,
+          deliveryDistanceKm.value - restaurant.value.delivery_free_radius_km - 1e-9,
+        ),
+      ) * Math.round(restaurant.value.delivery_fee_per_km * 100)
     : 0,
+);
+const hasStoreLocation = computed(
+  () =>
+    restaurant.value?.store_latitude !== null &&
+    restaurant.value?.store_latitude !== undefined &&
+    restaurant.value?.store_longitude !== null &&
+    restaurant.value?.store_longitude !== undefined,
+);
+const deliveryDistanceKm = computed(() => {
+  return ridingDistanceMeters.value === null
+    ? null
+    : ridingDistanceMeters.value / 1000;
+});
+const deliveryOutOfRange = computed(
+  () =>
+    mode.value === "delivery" &&
+    deliveryDistanceKm.value !== null &&
+    Boolean(restaurant.value) &&
+    deliveryDistanceKm.value > restaurant.value!.delivery_radius_km,
 );
 const totalCents = computed(() => subtotalCents.value - memberDiscountCents.value + deliveryFeeCents.value);
 const estimatedPoints = computed(() => {
@@ -73,7 +101,13 @@ const canSubmit = computed(
     lines.value.length > 0 &&
     !submitting.value &&
     Boolean(restaurant.value?.is_open) &&
-    availableModes.value.includes(mode.value),
+    availableModes.value.includes(mode.value) &&
+    (mode.value !== "delivery" ||
+      (Boolean(deliveryAddress.value) &&
+        Boolean(deliveryCoordinates.value) &&
+        deliveryDistanceKm.value !== null &&
+        !ridingDistanceLoading.value &&
+        !deliveryOutOfRange.value)),
 );
 
 const REQUEST_KEY_STORAGE = "restaurant-order-request-key";
@@ -114,6 +148,11 @@ function money(cents: number) {
   return (cents / 100).toFixed(2);
 }
 
+function deliveryAddressText(address: Address) {
+  return `${address.province}${address.city}${address.district}${address.detail}`
+    .slice(0, 255);
+}
+
 function formatSelections(line: CartLine) {
   return line.selections
     .map((selection) => `${selection.group_name}：${selection.option_name}`)
@@ -123,15 +162,10 @@ function formatSelections(line: CartLine) {
 function refreshCart() {
   lines.value = getCartLines();
   requestKey.value = String(uni.getStorageSync(REQUEST_KEY_STORAGE) || "");
-  const storedMode = uni.getStorageSync("restaurant-fulfillment-mode") as
-    | FulfillmentMode
-    | undefined;
-  if (
-    storedMode === "dine_in" ||
-    storedMode === "takeaway" ||
-    storedMode === "delivery"
-  )
-    mode.value = storedMode;
+  const storedMode = String(
+    uni.getStorageSync("restaurant-fulfillment-mode") || "",
+  );
+  mode.value = storedMode === "delivery" ? "delivery" : "takeaway";
 }
 
 async function loadRestaurant() {
@@ -142,7 +176,11 @@ async function loadRestaurant() {
       availableModes.value.length
     )
       chooseMode(availableModes.value[0]);
-    if (mode.value === "delivery") await loadDeliveryAddress();
+    if (mode.value === "delivery") {
+      await loadDeliveryAddress();
+      if (deliveryAddress.value && hasStoreLocation.value)
+        void updateRidingDistance();
+    }
   } catch {
     restaurant.value = null;
   }
@@ -175,14 +213,67 @@ function removeLine(line: CartLine) {
 }
 
 function chooseMode(nextMode: FulfillmentMode) {
+  if (!availableModes.value.includes(nextMode)) return;
   mode.value = nextMode;
   uni.setStorageSync("restaurant-fulfillment-mode", nextMode);
   clearRequestKey();
 }
 
 async function selectMode(nextMode: FulfillmentMode) {
+  if (!availableModes.value.includes(nextMode)) return;
   chooseMode(nextMode);
-  if (nextMode === "delivery") await loadDeliveryAddress();
+  if (nextMode === "delivery") {
+    await loadDeliveryAddress();
+    if (deliveryAddress.value) await updateRidingDistance();
+  }
+}
+
+async function updateRidingDistance() {
+  const requestId = ++ridingDistanceRequestId;
+  const store = restaurant.value;
+  const destination = deliveryAddress.value;
+  if (!store || !hasStoreLocation.value || !destination) {
+    deliveryCoordinates.value = null;
+    ridingDistanceMeters.value = null;
+    ridingDistanceError.value = "";
+    ridingDistanceLoading.value = false;
+    return;
+  }
+
+  ridingDistanceMeters.value = null;
+  deliveryCoordinates.value = null;
+  ridingDistanceError.value = "";
+  ridingDistanceLoading.value = true;
+  try {
+    // Let the server geocode the saved address; keep coordinates only for pricing and order submission.
+    const result = await getRidingDistance(deliveryAddressText(destination));
+    if (requestId === ridingDistanceRequestId) {
+      if (
+        !Number.isFinite(result.destination_latitude) ||
+        result.destination_latitude < -90 ||
+        result.destination_latitude > 90 ||
+        !Number.isFinite(result.destination_longitude) ||
+        result.destination_longitude < -180 ||
+        result.destination_longitude > 180
+      ) {
+        throw new Error("无法定位该收货地址，请检查详细地址");
+      }
+      ridingDistanceMeters.value = result.distance_meters;
+      deliveryCoordinates.value = {
+        latitude: result.destination_latitude,
+        longitude: result.destination_longitude,
+      };
+      clearRequestKey();
+    }
+  } catch (error) {
+    if (requestId === ridingDistanceRequestId) {
+      ridingDistanceError.value = error instanceof Error ? error.message : "骑行路线暂不可用";
+      uni.showToast({ title: "骑行路线计算失败，请重试", icon: "none" });
+    }
+  } finally {
+    if (requestId === ridingDistanceRequestId)
+      ridingDistanceLoading.value = false;
+  }
 }
 
 async function loadDeliveryAddress() {
@@ -200,18 +291,24 @@ async function loadDeliveryAddress() {
     else uni.removeStorageSync(ADDRESS_ID_STORAGE);
     if (previousId && previousId !== deliveryAddress.value?.id)
       clearRequestKey();
+    if (!deliveryAddress.value) {
+      deliveryCoordinates.value = null;
+      ridingDistanceMeters.value = null;
+    }
   } catch {
     deliveryAddress.value = null;
+    deliveryCoordinates.value = null;
+    ridingDistanceMeters.value = null;
   }
 }
 
 function openAddresses() {
+  // Keep address selection and creation in the address book; checkout only reflects the selected address.
   uni.navigateTo({ url: "/subpackages/account/pages/address/index?select=1" });
 }
 
 function goShopping() {
-  const mode = String(uni.getStorageSync("restaurant-fulfillment-mode") || "takeaway");
-  uni.navigateTo({ url: `/subpackages/menu/pages/products/index?mode=${encodeURIComponent(mode)}` });
+  uni.navigateTo({ url: "/subpackages/menu/pages/products/index" });
 }
 
 async function submitOrder() {
@@ -224,16 +321,23 @@ async function submitOrder() {
     uni.showToast({ title: "门店暂未接单", icon: "none" });
     return;
   }
-  if (mode.value === "dine_in" && !tableNumber.value.trim()) {
-    uni.showToast({ title: "请填写桌号", icon: "none" });
-    return;
-  }
   if (mode.value === "delivery" && !deliveryAddress.value) {
     await loadDeliveryAddress();
     if (!deliveryAddress.value) {
       openAddresses();
       return;
     }
+  }
+  if (mode.value === "delivery" && (deliveryDistanceKm.value === null || !deliveryCoordinates.value)) {
+    await updateRidingDistance();
+    if (deliveryDistanceKm.value === null || !deliveryCoordinates.value) {
+      uni.showToast({ title: "骑行路线暂不可用，请重试", icon: "none" });
+      return;
+    }
+  }
+  if (mode.value === "delivery" && deliveryOutOfRange.value) {
+    uni.showToast({ title: "收货地址超出门店配送范围", icon: "none" });
+    return;
   }
   const minimumCents = Math.round(
     (restaurant.value.delivery_minimum_amount || 0) * 100,
@@ -248,15 +352,15 @@ async function submitOrder() {
 
   submitting.value = true;
   try {
-    await loadMembership(true);
-    const pointsToEarn = estimatedPoints.value;
     const input: Omit<CreateOrderInput, "request_key"> = {
       fulfillment_mode: mode.value,
-      ...(mode.value === "dine_in"
-        ? { table_number: tableNumber.value.trim() }
-        : {}),
       ...(mode.value === "delivery" && deliveryAddress.value
-        ? { address_id: deliveryAddress.value.id }
+        ? {
+            address_id: deliveryAddress.value.id,
+            delivery_latitude: deliveryCoordinates.value!.latitude,
+            delivery_longitude: deliveryCoordinates.value!.longitude,
+            delivery_location_address: deliveryAddressText(deliveryAddress.value),
+          }
         : {}),
       items: lines.value.map((line) => ({
         product_id: line.product_id,
@@ -270,11 +374,8 @@ async function submitOrder() {
     });
     lines.value = clearCart();
     clearRequestKey();
-    uni.showModal({
-      title: "订单已提交",
-      content: `订单号 ${order.order_number}\n会员优惠 ¥${money(order.discount_cents)} · 合计 ¥${money(order.total_cents)}\n${pointsToEarn} 积分将在确认收款后到账\n微信支付暂未接入，15 分钟后自动取消`,
-      showCancel: false,
-      confirmText: "知道了",
+    uni.navigateTo({
+      url: `/pages/payment/index?order_number=${encodeURIComponent(order.order_number)}`,
     });
   } catch (error) {
     uni.showModal({
@@ -332,15 +433,6 @@ onShow(() => {
       </view>
       <view class="mode-options">
         <view
-          v-if="!restaurant || restaurant.dine_in_enabled"
-          class="mode-option"
-          :class="{ selected: mode === 'dine_in' }"
-          @tap="selectMode('dine_in')"
-        >
-          <text class="mode-icon">🍽</text><text class="mode-label">堂食</text
-          ><text class="mode-description">店内用餐</text>
-        </view>
-        <view
           v-if="!restaurant || restaurant.takeaway_enabled"
           class="mode-option"
           :class="{ selected: mode === 'takeaway' }"
@@ -351,7 +443,7 @@ onShow(() => {
           ><text class="mode-description">到店取餐</text>
         </view>
         <view
-          v-if="restaurant?.delivery_enabled"
+          v-if="!restaurant || restaurant.delivery_enabled"
           class="mode-option"
           :class="{ selected: mode === 'delivery' }"
           @tap="selectMode('delivery')"
@@ -361,48 +453,31 @@ onShow(() => {
           ><text class="mode-description">送到家</text>
         </view>
       </view>
-      <view v-if="mode === 'dine_in'" class="destination-card table-card">
-        <view class="destination-icon">桌</view>
-        <view class="destination-copy">
-          <text class="destination-eyebrow">堂食桌号</text>
-          <input
-            v-model="tableNumber"
-            placeholder="请填写桌号"
-            maxlength="20"
-            @input="clearRequestKey"
-          />
-        </view>
-      </view>
       <view
-        v-else-if="mode === 'delivery'"
+        v-if="mode === 'delivery'"
         class="destination-card delivery-hint"
-        @tap="openAddresses"
       >
-        <view class="destination-icon">⌖</view>
+        <view class="destination-icon recipient-icon">人</view>
         <view v-if="deliveryAddress" class="destination-copy chosen-address">
-          <text class="destination-eyebrow">配送至</text>
+          <text class="destination-eyebrow">收货信息</text>
           <text class="destination-title"
             >{{ deliveryAddress.recipient_name }}
-            <text class="destination-phone">{{
-              deliveryAddress.phone
-            }}</text></text
-          >
-          <text class="destination-address"
-            >{{ deliveryAddress.province }}{{ deliveryAddress.city
-            }}{{ deliveryAddress.district }}{{ deliveryAddress.detail }}</text
-          >
+            <text class="destination-phone">{{ deliveryAddress.phone }}</text>
+          </text>
+          <text class="destination-address">
+            {{ deliveryAddress.province }}{{ deliveryAddress.city
+            }}{{ deliveryAddress.district }}{{ deliveryAddress.detail }}
+          </text>
         </view>
         <view v-else class="destination-copy">
-          <text class="destination-eyebrow">配送地址</text>
-          <text class="destination-title">请选择收货地址</text>
-          <text class="destination-address">仅外卖订单需要填写配送地址</text>
+          <text class="destination-eyebrow">收货信息</text>
+          <text class="destination-title">尚未添加收货地址</text>
         </view>
-        <text class="hint-arrow">›</text>
+        <view class="address-picker-action" @tap="openAddresses">
+          {{ deliveryAddress ? '更换收货信息' : '请选择收货信息' }}
+        </view>
       </view>
-      <view
-        v-else-if="mode === 'takeaway'"
-        class="destination-card pickup-card"
-      >
+      <view v-else class="destination-card pickup-card">
         <view class="destination-icon pickup-icon">⌖</view>
         <view class="destination-copy">
           <text class="destination-eyebrow">门店地址</text>
@@ -416,10 +491,20 @@ onShow(() => {
         </view>
       </view>
       <view v-if="mode === 'delivery' && restaurant" class="delivery-rules">
-        <text>配送范围 {{ restaurant.delivery_radius_km }} 公里</text>
+        <text>{{ restaurant.delivery_free_radius_km }} 公里内免费</text>
+        <text>超出每公里 ¥{{ restaurant.delivery_fee_per_km.toFixed(2) }}</text>
+        <text>最远 {{ restaurant.delivery_radius_km }} 公里</text>
         <text>¥{{ restaurant.delivery_minimum_amount.toFixed(2) }} 起送</text>
-        <text>配送费 ¥{{ restaurant.delivery_fee.toFixed(2) }}</text>
       </view>
+      <view
+        v-if="mode === 'delivery' && ridingDistanceError"
+        class="delivery-config-warning"
+        @tap="updateRidingDistance"
+      >骑行距离暂不可用，点击重试</view>
+      <view
+        v-if="mode === 'delivery' && !hasStoreLocation"
+        class="delivery-config-warning"
+      >门店位置尚未配置，暂时无法计算配送费</view>
     </view>
 
     <view v-if="lines.length" class="dish-list">
@@ -488,9 +573,15 @@ onShow(() => {
       </view>
       <view v-if="mode === 'delivery'" class="cost-lines">
         <text class="cost-label">配送费</text
-        ><text class="cost-value">¥{{ money(deliveryFeeCents) }}</text>
+        ><text class="cost-value">
+          {{ ridingDistanceLoading ? "正在计算" : deliveryDistanceKm === null ? "选择收货信息后计算" : "¥" + money(deliveryFeeCents) }}
+        </text>
       </view>
-      <view v-if="membershipConfig" class="checkout-points">预计获得 {{ estimatedPoints }} 积分 · 确认收款后到账</view>
+      <view class="payment-hint">
+        <text class="payment-hint-icon">↗</text>
+        <text>提交订单后选择支付方式，余额支付将在下一步确认</text>
+      </view>
+      <view v-if="membershipConfig" class="checkout-points">预计获得 {{ estimatedPoints }} 积分 · 余额支付后到账</view>
       <view class="summary-divider" />
       <view class="total-row"
         ><text class="total-caption">应付金额</text
@@ -506,7 +597,7 @@ onShow(() => {
         :loading="submitting"
         :disabled="!canSubmit"
         @click="submitOrder"
-        >确认并提交订单</wd-button
+        >提交订单</wd-button
       >
     </view>
     <view v-if="lines.length" class="continue-button" @tap="goShopping"
@@ -534,7 +625,7 @@ onShow(() => {
   flex-direction: column;
 }
 .heading-kicker {
-  color: #b47a5c;
+  color: #9b123f;
   font-size: 8px;
   font-weight: 700;
   letter-spacing: 1.7px;
@@ -669,9 +760,9 @@ onShow(() => {
     border-color 0.2s;
 }
 .mode-option.selected {
-  border-color: #ca886b;
-  background: linear-gradient(150deg, #fff8f2, #fff1e7);
-  color: #a45337;
+  border-color: #c21850;
+  background: linear-gradient(150deg, #fff, #fceaf0);
+  color: #9b123f;
   box-shadow: inset 0 0 0 1px rgb(202 136 107 / 9%);
 }
 .mode-icon {
@@ -683,7 +774,7 @@ onShow(() => {
   font-weight: 700;
 }
 .mode-option.selected .mode-label {
-  color: #a45337;
+  color: #9b123f;
 }
 .mode-description {
   color: #aaa49a;
@@ -706,8 +797,8 @@ onShow(() => {
   flex: 0 0 35px;
   place-items: center;
   border-radius: 12px;
-  background: #fff0e6;
-  color: #b86c4b;
+  background: #fceaf0;
+  color: #9b123f;
   font-size: 17px;
   font-weight: 700;
 }
@@ -743,6 +834,11 @@ onShow(() => {
   font-size: 10px;
   line-height: 1.5;
 }
+.recipient-icon {
+  background: #eef1e9;
+  color: #718063;
+  font-size: 12px;
+}
 .destination-footnote {
   color: #71906c;
   font-size: 8px;
@@ -754,6 +850,20 @@ onShow(() => {
 }
 .delivery-hint {
   justify-content: space-between;
+}
+.address-picker-action {
+  flex: 0 0 auto;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #fceaf0;
+  color: #9b123f;
+  font-size: 10px;
+  font-weight: 600;
+}
+.delivery-config-warning {
+  margin-top: 9px;
+  color: #b3563b;
+  font-size: 10px;
 }
 .hint-arrow {
   padding-left: 4px;
@@ -836,7 +946,7 @@ onShow(() => {
   white-space: nowrap;
 }
 .dish-price {
-  color: #b9573b;
+  color: #c21850;
   font-size: 12px;
   font-weight: 700;
 }
@@ -862,7 +972,7 @@ onShow(() => {
   font-size: 15px;
 }
 .quantity-button.plus {
-  background: #bd7555;
+  background: #c21850;
   color: #fff;
 }
 .quantity-button.disabled {
@@ -910,7 +1020,7 @@ onShow(() => {
   margin-top: 16px;
   padding: 11px 25px;
   border-radius: 22px;
-  background: #bb6d4c;
+  background: #c21850;
   color: #fff;
   font-size: 11px;
   font-weight: 700;
@@ -956,7 +1066,7 @@ onShow(() => {
   font-weight: 600;
 }
 .total-price {
-  color: #b9573b;
+  color: #c21850;
   font-size: 21px;
   font-weight: 750;
 }
@@ -970,6 +1080,10 @@ onShow(() => {
   line-height: 1.5;
 }
 .member-discount-line .cost-label, .member-discount-line .cost-value { color: #a35e43; }
+.wallet-balance-line { margin-top: 12px; }
+.wallet-insufficient { margin-top: 8px; color: #a34f4f; font-size: 10px; text-align: right; }
+.payment-hint { display: flex; align-items: center; gap: 7px; margin-top: 14px; padding: 10px 11px; border-radius: 10px; background: #f8f4ee; color: #9a8b7c; font-size: 9px; line-height: 1.45; }
+.payment-hint-icon { display: grid; width: 17px; height: 17px; flex: 0 0 17px; place-items: center; border-radius: 50%; background: #eadfd2; color: #a35e43; font-size: 11px; font-weight: 700; }
 .checkout-points { margin-top: 10px; color: #9a805e; font-size: 9px; text-align: right; }
 .submit-order {
   width: 100%;
@@ -978,7 +1092,7 @@ onShow(() => {
 .continue-button {
   padding: 13px;
   background: transparent;
-  color: #9b684f;
+  color: #9b123f;
   text-align: center;
 }
 </style>

@@ -16,6 +16,7 @@ export interface AdminCustomer {
   id: number
   nickname: string
   points: number
+  balance_cents: number
   member_level: number
   discount_rate: number
   order_count: number

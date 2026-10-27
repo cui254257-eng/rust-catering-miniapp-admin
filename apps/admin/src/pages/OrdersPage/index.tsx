@@ -66,6 +66,11 @@ const columns: NonNullable<TableProps<AdminOrder>["columns"]> = [
           {order.order_number}
         </Typography.Text>
         <Typography.Text type="secondary">{order.created_at}</Typography.Text>
+        {order.payment_status === "paid" && (
+          <Typography.Text type="secondary">
+            {order.payment_method === "wallet" ? "储值余额支付" : "线下收款"}
+          </Typography.Text>
+        )}
       </Space>
     ),
   },
@@ -388,6 +393,13 @@ export default function OrdersPage() {
                 <Descriptions size="small" column={{ xs: 1, sm: 2, md: 3 }}>
                   <Descriptions.Item label="支付状态">
                     {order.payment_status === "paid" ? "已支付" : "未支付"}
+                  </Descriptions.Item>
+                  <Descriptions.Item label="支付方式">
+                    {order.payment_method === "wallet"
+                      ? "储值余额"
+                      : order.payment_status === "paid"
+                        ? "线下收款"
+                        : "线下待收款"}
                   </Descriptions.Item>
                   <Descriptions.Item label="商品小计">
                     {money(order.subtotal_cents)}

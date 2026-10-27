@@ -10,8 +10,7 @@
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "types": ["@dcloudio/types", "@wot-ui/ui/global", "miniprogram-api-typings", "vite/client"],
-    "baseUrl": ".",
-    "paths": { "@/*": ["src/*"] }
+    "paths": { "@/*": ["./src/*"] }
   },
   "include": ["src/**/*.ts", "src/**/*.d.ts", "src/**/*.tsx", "src/**/*.vue", "vite.config.ts"]
 }

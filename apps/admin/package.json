@@ -10,6 +10,7 @@
     "typecheck": "tsc -b --pretty"
   },
   "dependencies": {
+    "@amap/amap-jsapi-loader": "^1.0.1",
     "@ant-design/icons": "^6.1.0",
     "@shop/contracts": "workspace:*",
     "antd": "^6.6.6",

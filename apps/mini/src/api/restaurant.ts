@@ -5,13 +5,16 @@ export interface RestaurantSettings {
   business_hours: string
   contact_phone: string
   store_address: string
+  store_latitude: number | null
+  store_longitude: number | null
   is_open: boolean
   dine_in_enabled: boolean
   takeaway_enabled: boolean
   delivery_enabled: boolean
   delivery_radius_km: number
+  delivery_free_radius_km: number
   delivery_minimum_amount: number
-  delivery_fee: number
+  delivery_fee_per_km: number
 }
 
 export function getRestaurantSettings() {

@@ -30,6 +30,13 @@ const pickupEnabled = computed(
 const deliveryEnabled = computed(
   () => !restaurant.value || restaurant.value.delivery_enabled,
 );
+const fulfillmentHint = computed(() => {
+  const modes = [
+    ...(pickupEnabled.value ? ["到店自取"] : []),
+    ...(deliveryEnabled.value ? ["门店配送"] : []),
+  ];
+  return modes.join(" · ") || "本时段暂不开放点餐";
+});
 const hasLayeredBanners = computed(() =>
   banners.value.some((banner) => Boolean(banner.background_image_url)),
 );
@@ -136,17 +143,13 @@ function openProfile() {
   uni.switchTab({ url: "/pages/profile/index" });
 }
 
-function openMenu(mode: "takeaway" | "delivery") {
-  if (mode === "takeaway" && !pickupEnabled.value) {
-    uni.showToast({ title: "门店暂未开放自取", icon: "none" });
+function openMenu() {
+  if (!pickupEnabled.value && !deliveryEnabled.value) {
+    uni.showToast({ title: "门店暂未开放点餐", icon: "none" });
     return;
   }
-  if (mode === "delivery" && !deliveryEnabled.value) {
-    uni.showToast({ title: "门店暂未开放外卖", icon: "none" });
-    return;
-  }
-  uni.setStorageSync("restaurant-fulfillment-mode", mode);
-  uni.navigateTo({ url: `/subpackages/menu/pages/products/index?mode=${mode}` });
+  uni.removeStorageSync("restaurant-fulfillment-entry-context");
+  uni.navigateTo({ url: "/subpackages/menu/pages/products/index" });
 }
 
 async function refreshHome() {
@@ -227,7 +230,7 @@ uni.getSystemInfo({
       </swiper>
       <view v-else class="hero-fallback">
         <text class="hero-kicker">{{
-          restaurant?.restaurant_name || "好味小馆"
+          restaurant?.restaurant_name || "MONGA·艋舺"
         }}</text>
         <text class="hero-title">新鲜好味，即刻开动</text>
         <text class="hero-subtitle">自取 · 外卖 · 用心做好每一餐</text>
@@ -260,7 +263,7 @@ uni.getSystemInfo({
           <text class="customer-name">{{
             loggedIn
               ? customerProfile?.nickname || "微信用户"
-              : "欢迎来到好味小馆"
+              : "欢迎来到 MONGA·艋舺"
           }}</text>
           <text class="customer-badge">{{ loggedIn ? "会员" : "去登录" }}</text>
         </view>
@@ -273,26 +276,15 @@ uni.getSystemInfo({
         <view
           class="fulfillment-option"
           hover-class="fulfillment-option-hover"
-          :class="{ unavailable: !pickupEnabled }"
-          @tap="openMenu('takeaway')"
+          :class="{ unavailable: !pickupEnabled && !deliveryEnabled }"
+          @tap="openMenu"
         >
-          <text class="fulfillment-title">自取</text>
-          <text class="fulfillment-subtitle">{{
-            pickupEnabled ? "Pickup" : "暂未开放"
-          }}</text>
-        </view>
-        <view class="fulfillment-separator" />
-        <view
-          class="fulfillment-option"
-          hover-class="fulfillment-option-hover"
-          :class="{ unavailable: !deliveryEnabled }"
-          @tap="openMenu('delivery')"
-        >
-          <text v-if="deliveryEnabled" class="fulfillment-badge">门店配送</text>
-          <text class="fulfillment-title">外卖</text>
-          <text class="fulfillment-subtitle">{{
-            deliveryEnabled ? "Delivery" : "暂未开放"
-          }}</text>
+          <view class="fulfillment-copy">
+            <text class="fulfillment-eyebrow">MONGA · ORDER</text>
+            <text class="fulfillment-title">开始点餐</text>
+            <text class="fulfillment-subtitle">{{ fulfillmentHint }}</text>
+          </view>
+          <view class="fulfillment-arrow">→</view>
         </view>
       </view>
     </view>
@@ -328,24 +320,25 @@ uni.getSystemInfo({
         <text class="store-info-value">{{ restaurant.business_hours }}</text>
       </view>
       <view v-if="restaurant.delivery_enabled" class="delivery-info">
-        外卖配送 {{ restaurant.delivery_radius_km }} 公里内 · 起送 ¥{{
-          restaurant.delivery_minimum_amount.toFixed(2)
+        {{ restaurant.delivery_free_radius_km }} 公里内免配送费 · 超出每公里 ¥{{
+          restaurant.delivery_fee_per_km.toFixed(2)
         }}
-        · 配送费 ¥{{ restaurant.delivery_fee.toFixed(2) }}
+        · {{ restaurant.delivery_radius_km }} 公里内可配送 · ¥{{
+          restaurant.delivery_minimum_amount.toFixed(2)
+        }} 起送
       </view>
       <view v-if="restaurant.store_address" class="store-address">{{
         restaurant.store_address
       }}</view>
     </view>
-
   </view>
 </template>
 
 <style scoped>
 .home-page {
   min-height: 100vh;
-  background: #f7f6f2;
-  color: #26241f;
+  background: #faf6f7;
+  color: #30252a;
 }
 .home-top {
   padding-top: calc(env(safe-area-inset-top) + 12px);
@@ -358,7 +351,7 @@ uni.getSystemInfo({
 .brand-sun {
   width: 17px;
   height: 17px;
-  border: 4px solid #e4784b;
+  border: 4px solid #c21850;
   border-radius: 50%;
   box-shadow: 0 0 0 3px #f5d5c3;
 }
@@ -370,7 +363,7 @@ uni.getSystemInfo({
   font-size: 10px;
 }
 .top-note.closed {
-  color: #b9573b;
+  color: #9b123f;
 }
 .status-dot {
   width: 6px;
@@ -387,7 +380,7 @@ uni.getSystemInfo({
   box-shadow: 0 3px 14px rgb(49 39 22 / 4%);
 }
 .clear-search {
-  color: #ba6340;
+  color: #c21850;
   font-size: 11px;
 }
 .hero-carousel,
@@ -500,7 +493,7 @@ uni.getSystemInfo({
 .hero-fallback {
   display: flex;
   align-items: center;
-  background: linear-gradient(118deg, #ffe7cc 0%, #f8b68d 55%, #ed8060 100%);
+  background: linear-gradient(135deg, #761329 0%, #9b123f 57%, #d6336c 100%);
 }
 .hero-copy {
   z-index: 2;
@@ -777,7 +770,7 @@ uni.getSystemInfo({
   width: 51px;
   height: 9px;
   border-radius: 5px;
-  background: #bc5e45;
+  background: #9b123f;
 }
 .cup-logo {
   position: absolute;
@@ -809,7 +802,7 @@ uni.getSystemInfo({
   height: 25px;
   place-items: center;
   border-radius: 50%;
-  background: #bd654b;
+  background: #c21850;
   box-shadow: 0 4px 8px rgb(136 72 50 / 16%);
 }
 .announcement-card {
@@ -953,20 +946,20 @@ uni.getSystemInfo({
     linear-gradient(150deg, #fff0d8 0%, #f8c49d 53%, #d98560 100%);
 }
 .hero-kicker {
-  color: #ad5e3c;
+  color: #ffd6e3;
   font-size: 23rpx;
   letter-spacing: 0.2em;
 }
 .hero-title {
   max-width: 75%;
   margin-top: 22rpx;
-  color: #523022;
+  color: #fff;
   font-size: 47rpx;
   line-height: 1.22;
 }
 .hero-subtitle {
   margin-top: 14rpx;
-  color: #875d45;
+  color: #ffe5ed;
   font-size: 22rpx;
 }
 .home-sheet {
@@ -1041,57 +1034,89 @@ uni.getSystemInfo({
 }
 .sheet-divider {
   height: 1rpx;
-  margin: 35rpx 0 17rpx;
+  margin: 24rpx 0 16rpx;
   background: #ece9e5;
 }
 .fulfillment-options {
   display: flex;
-  min-height: 154rpx;
+  min-height: 164rpx;
   align-items: stretch;
 }
 .fulfillment-option {
   position: relative;
   display: flex;
   min-width: 0;
-  flex: 1;
-  flex-direction: column;
+  width: 100%;
   align-items: center;
-  justify-content: center;
-  border-radius: 14rpx;
+  justify-content: space-between;
+  overflow: hidden;
+  padding: 0 30rpx;
+  border: 1rpx solid rgb(255 255 255 / 18%);
+  border-radius: 24rpx;
+  background:
+    radial-gradient(circle at 96% 12%, rgb(255 255 255 / 13%) 0 74rpx, transparent 75rpx),
+    linear-gradient(112deg, #761329 0%, #9b123f 52%, #c21850 100%);
+  box-shadow: 0 14rpx 28rpx rgb(118 19 41 / 20%);
+  transition: filter 0.16s ease, transform 0.16s ease;
+}
+.fulfillment-option::before {
+  position: absolute;
+  top: -106rpx;
+  right: 112rpx;
+  width: 250rpx;
+  height: 250rpx;
+  border: 1rpx solid rgb(255 255 255 / 12%);
+  border-radius: 50%;
+  box-shadow: 0 0 0 25rpx rgb(255 255 255 / 4%);
+  content: "";
+  pointer-events: none;
 }
 .fulfillment-option-hover {
-  background: #fbf8f4;
+  filter: brightness(1.07);
+  transform: translateY(-2rpx);
 }
 .fulfillment-option.unavailable {
-  opacity: 0.43;
+  opacity: 0.52;
 }
-.fulfillment-separator {
-  width: 1rpx;
-  align-self: center;
-  height: 92rpx;
-  background: #e9e6e2;
+.fulfillment-copy {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4rpx;
+}
+.fulfillment-eyebrow {
+  color: #ffc9d9;
+  font-size: 17rpx;
+  font-weight: 700;
+  letter-spacing: 2rpx;
 }
 .fulfillment-title {
-  color: #56524e;
-  font-size: 40rpx;
-  font-weight: 400;
+  color: #fff;
+  font-size: 34rpx;
+  font-weight: 700;
   line-height: 1.3;
 }
 .fulfillment-subtitle {
-  margin-top: 7rpx;
-  color: #aaa6a2;
-  font-size: 21rpx;
+  color: rgb(255 255 255 / 76%);
+  font-size: 20rpx;
+  letter-spacing: 1rpx;
 }
-.fulfillment-badge {
-  position: absolute;
-  top: -2rpx;
-  right: 4rpx;
-  padding: 5rpx 15rpx;
-  border-radius: 20rpx;
-  background: #718c00;
+.fulfillment-arrow {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  width: 62rpx;
+  height: 62rpx;
+  flex: 0 0 62rpx;
+  place-items: center;
+  border: 1rpx solid rgb(255 255 255 / 48%);
+  border-radius: 50%;
+  background: rgb(255 255 255 / 12%);
   color: #fff;
-  font-size: 19rpx;
-  line-height: 1.2;
+  font-size: 38rpx;
+  line-height: 1;
 }
 .announcement-card {
   margin-top: 26rpx;

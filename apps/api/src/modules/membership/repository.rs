@@ -32,7 +32,7 @@ impl MembershipRepository {
         .fetch_one(&self.pool)
         .await?;
         let rows = sqlx::query_as::<_, MembershipTierRow>(
-            "SELECT level, required_points, CAST(discount_rate AS DOUBLE) AS discount_rate \
+            "SELECT level, required_points, (discount_rate + 0e0) AS discount_rate \
              FROM membership_tiers ORDER BY level",
         )
         .fetch_all(&self.pool)
@@ -91,8 +91,8 @@ impl MembershipRepository {
 
         let offset = i64::from(page.saturating_sub(1)) * i64::from(page_size);
         let customers = sqlx::query_as::<_, super::dto::AdminCustomer>(
-            "SELECT c.id, c.nickname, c.points, COALESCE(t.level, 1) AS member_level, \
-             COALESCE(CAST(t.discount_rate AS DOUBLE), 1.0) AS discount_rate, \
+            "SELECT c.id, c.nickname, c.points, c.balance_cents, COALESCE(t.level, 1) AS member_level, \
+             COALESCE(t.discount_rate + 0e0, 1e0) AS discount_rate, \
              COALESCE(o.order_count, 0) AS order_count, CAST(COALESCE(o.paid_total_cents, 0) AS SIGNED) AS paid_total_cents, \
              DATE_FORMAT(c.created_at, '%Y-%m-%d %H:%i:%s') AS created_at \
              FROM customers c \

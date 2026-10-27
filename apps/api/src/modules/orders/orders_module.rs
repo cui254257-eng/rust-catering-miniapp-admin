@@ -10,6 +10,10 @@ pub(crate) fn routes() -> Router<AppState> {
             "/api/orders",
             get(controller::list_customer_orders).post(controller::create),
         )
+        .route(
+            "/api/orders/{order_number}/pay",
+            axum::routing::post(controller::pay),
+        )
         .route("/api/admin/orders", get(controller::list_admin_orders))
         .route(
             "/api/admin/orders/{order_number}",

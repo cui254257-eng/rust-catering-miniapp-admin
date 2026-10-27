@@ -27,6 +27,8 @@ pnpm install
 
 微信登录、个人资料与收货地址使用同一顾客会话：`apps/mini/src/manifest.json` 中的 `mp-weixin.appid` 必须与 `.env` 的 `WECHAT_APP_ID` 一致；`WECHAT_APP_SECRET` 只放在 API 主机环境变量或未提交的 `.env`，不要放入小程序配置或提交到代码仓库。登录时由小程序取得一次性 `uni.login` code，后端换取 OpenID 并自动创建或复用顾客账号；客户端不能传入或指定用户 ID。登录 token 持久化保存在小程序本地和服务端数据库，有效期为 7 天。
 
+高德地图配置：复制 `.env.example` 为 `.env.local`，在 API 环境设置 `AMAP_JS_API_KEY`、`AMAP_JS_SECURITY_CODE` 和 `AMAP_WEB_SERVICE_API_KEY`。在 `apps/admin/.env.local` 设置 `VITE_AMAP_JS_API_KEY`（该 JS Key 会出现在后台浏览器包中，请在高德控制台限制可用域名）。管理后台地图选点与地理编码使用 JS API Key 和服务端安全代理；安全密钥不下发浏览器。小程序骑行距离使用 `AMAP_WEB_SERVICE_API_KEY`，须在高德控制台申请“Web 服务”类型的 Key；JS API Key 不能替代该 Key。不要将真实密钥提交到代码仓库。
+
 登录后资料和地址 API 需 `Authorization: Bearer <token>`，登录接口除外：
 
 | 方法 | 路径 | 说明 |
@@ -79,7 +81,7 @@ pnpm dev:mini:mp-weixin
 
 “门店设置”维护营业时间、当前接单状态、服务方式、门店地址和外卖规则；“首页公告”管理小程序首页展示的公告。点餐篮支持桌号、外带自取和外卖收货地址。
 
-下单接口会在服务端重新读取菜价与规格、校验营业状态/服务方式/库存/起送金额，并在事务中创建订单、保存菜品快照及预留库存；相同请求键可安全重试。未支付订单 15 分钟后由 API 自动取消并释放库存。小程序“我的订单”仅读取当前微信账号的订单；管理后台“订单管理”可查看全体用户订单，并按订单号、用户昵称/ID、状态和用餐方式筛选。当前微信支付、退款和后台接单状态流转尚未接入，因此目前不能完成真实收款。配送半径目前仅用于展示，尚未使用地图坐标进行真实距离校验。
+下单接口会在服务端重新读取菜价与规格、校验营业状态/服务方式/库存/起送金额，并在事务中创建订单、保存菜品快照及预留库存；相同请求键可安全重试。未支付订单 15 分钟后由 API 自动取消并释放库存。外卖结算由小程序选择配送位置，后端以数据库中的门店经纬度为起点，调用高德骑行路线规划返回距离（米）并用于展示配送距离/费用；创建订单时 API 会重新计算骑行路线并校验配送范围，不采用直线距离，也不信任客户端提交的距离。小程序“我的订单”仅读取当前微信账号的订单；管理后台“订单管理”可查看全体用户订单，并按订单号、用户昵称/ID、状态和用餐方式筛选。当前微信支付、退款和后台接单状态流转尚未接入，因此目前不能完成真实收款。
 
 轮播图由管理后台上传：前景图和可选背景图分别转为 Data URL，POST 到 `/api/banners`；API 校验图片内容和格式后将 Base64 暂存到 `shop.banners`。每张图片最大 5 MB，支持 JPG、PNG、WEBP、GIF。小程序读取轮播图列表，并用独立背景层跟随滑动进度交叉渐变；未配置背景图的旧轮播会继续使用前景图铺底。后续接入对象存储时，只需替换 Rust 的 `BannersRepository` 存储实现。
 
@@ -96,6 +98,7 @@ API 路由：
 | GET/PUT | `/api/restaurant/settings` | 查看/更新单门店营业、服务方式与配送配置 |
 | GET/PUT | `/api/announcements` | 查看/更新小程序首页公告 |
 | POST | `/api/orders` | 登录用户提交点餐订单；菜价由服务端计算 |
+| POST | `/api/maps/riding-distance` | 登录用户查询到所选配送坐标的骑行路线距离，JSON 字段 `destination_longitude`、`destination_latitude` |
 | GET | `/api/orders` | 登录用户查询自己的订单及商品明细 |
 | GET | `/api/admin/orders` | 管理员分页查询全体用户订单；支持 `q`、`status`、`fulfillment_mode`、`page`、`page_size` |
 | GET | `/api/banners` | 门店活动图列表 |

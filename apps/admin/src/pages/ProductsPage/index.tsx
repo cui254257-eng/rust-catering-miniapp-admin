@@ -1,6 +1,6 @@
 import { useEffect, useState, type ChangeEvent } from 'react'
 import type { Product, ProductInput } from '@shop/contracts'
-import { Button, Form, Input, InputNumber, message, Modal, Popconfirm, Select, Space, Switch, Table, Tag, Typography } from 'antd'
+import { AutoComplete, Button, Form, Input, InputNumber, message, Modal, Popconfirm, Select, Space, Switch, Table, Tag, Typography } from 'antd'
 import type { TableProps } from 'antd'
 import { assetUrl } from '@/api/client'
 import { createProduct, deleteProduct, getProducts, updateProduct } from '@/api/products'
@@ -19,6 +19,10 @@ export default function ProductsPage() {
   const [imageFile, setImageFile] = useState<File | null>(null)
   const [imagePreview, setImagePreview] = useState('')
   const [form] = Form.useForm<ProductFormValues>()
+  const categoryOptions = Array.from(new Set([
+    '主食盖饭', '面食', '小吃', '饮品', '甜品', '套餐',
+    ...products.map((product) => product.category.trim()).filter(Boolean),
+  ])).map((category) => ({ value: category }))
 
   async function loadProducts(search = query) {
     setLoading(true)
@@ -180,8 +184,14 @@ export default function ProductsPage() {
           <Form.Item name="name" label="菜品名称" rules={[{ required: true, whitespace: true, message: '请输入菜品名称' }, { max: 80, message: '名称不能超过 80 个字' }]}>
             <Input placeholder="例如：招牌红烧牛肉饭" maxLength={80} />
           </Form.Item>
-          <Form.Item name="category" label="菜单分类" rules={[{ required: true, message: '请选择菜单分类' }]}>
-            <Select options={['主食盖饭', '面食', '小吃', '饮品', '甜品', '套餐'].map((category) => ({ value: category, label: category }))} />
+          <Form.Item name="category" label="菜单分类" rules={[{ required: true, whitespace: true, message: '请输入菜单分类' }, { max: 40, message: '分类不能超过 40 个字' }]}>
+            <AutoComplete
+              options={categoryOptions}
+              filterOption={(input, option) => String(option?.value ?? '').toLowerCase().includes(input.toLowerCase())}
+              placeholder="选择已有分类，或输入新分类"
+            >
+              <Input maxLength={40} />
+            </AutoComplete>
           </Form.Item>
           <Form.Item name="description" label="描述" rules={[{ max: 500, message: '最多 500 字' }]}>
             <Input.TextArea placeholder="例如：慢炖牛腩，配米饭和时蔬" rows={2} maxLength={120} showCount />

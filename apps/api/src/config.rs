@@ -13,6 +13,9 @@ pub(crate) struct Settings {
     pub(crate) admin_api_token: Option<String>,
     pub(crate) admin_username: String,
     pub(crate) admin_password: String,
+    pub(crate) amap_js_api_key: String,
+    pub(crate) amap_js_security_code: String,
+    pub(crate) amap_web_service_api_key: String,
 }
 
 impl Settings {
@@ -48,6 +51,9 @@ impl Settings {
             admin_api_token,
             admin_username: env::var("ADMIN_USERNAME").unwrap_or_else(|_| "admin".into()),
             admin_password: env::var("ADMIN_PASSWORD").unwrap_or_else(|_| "admin".into()),
+            amap_js_api_key: env::var("AMAP_JS_API_KEY").unwrap_or_default(),
+            amap_js_security_code: env::var("AMAP_JS_SECURITY_CODE").unwrap_or_default(),
+            amap_web_service_api_key: env::var("AMAP_WEB_SERVICE_API_KEY").unwrap_or_default(),
         })
     }
 }

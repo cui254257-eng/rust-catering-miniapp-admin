@@ -81,7 +81,7 @@ onPullDownRefresh(() => {
 <template>
   <view class="orders-page">
     <view class="orders-heading">
-      <text class="heading-kicker">HAOWEI · ORDER HISTORY</text>
+      <text class="heading-kicker">MONGA · ORDER HISTORY</text>
       <text class="heading-title">我的订单</text>
       <text class="heading-caption">每一份认真制作，都值得好好回味</text>
     </view>
@@ -165,6 +165,7 @@ onPullDownRefresh(() => {
             <text>{{ order.payment_status === 'paid' ? '实付' : '合计' }} <strong>{{ money(order.total_cents) }}</strong></text>
           </view>
           <view v-if="order.discount_cents > 0" class="order-member-discount">会员折扣 -{{ money(order.discount_cents) }}</view>
+          <view v-if="order.payment_status === 'paid' && order.payment_method === 'wallet'" class="order-member-points">储值余额支付</view>
           <view v-if="order.points_earned > 0" class="order-member-points">本单获得 {{ order.points_earned }} 积分</view>
         </view>
       </view>
@@ -188,7 +189,7 @@ onPullDownRefresh(() => {
 .filter-scroll { width: calc(100% + 32px); margin: 0 -16px 14px; white-space: nowrap; }
 .filter-list { display: inline-flex; gap: 8px; padding: 0 16px; }
 .filter-pill { padding: 8px 14px; border: 1px solid #e9e2d8; border-radius: 18px; background: #fffdfa; color: #86796b; font-size: 10px; }
-.filter-pill.active { border-color: #b96d4b; background: #b96d4b; color: #fff; box-shadow: 0 5px 13px rgb(185 109 75 / 18%); }
+.filter-pill.active { border-color: #c21850; background: #c21850; color: #fff; box-shadow: 0 5px 13px rgb(194 24 80 / 18%); }
 .order-list { display: flex; flex-direction: column; gap: 13px; }
 .order-card, .state-card { border: 1px solid #eee8df; border-radius: 17px; background: #fffdfa; box-shadow: 0 7px 22px rgb(54 41 29 / 4%); }
 .order-card { padding: 14px 15px 12px; }
@@ -218,6 +219,6 @@ onPullDownRefresh(() => {
 .loading-mark { color: #8a9a77; font-size: 30px; }
 .state-title { color: #514237; font-size: 13px; font-weight: 700; }
 .state-caption { margin-top: 7px; color: #aaa094; font-size: 10px; line-height: 1.6; }
-.primary-button { display: grid; min-width: 112px; height: 36px; place-items: center; margin-top: 17px; padding: 0 16px; border-radius: 19px; background: #b96d4b; box-shadow: 0 6px 15px rgb(185 109 75 / 17%); color: #fff; font-size: 10px; font-weight: 700; }
+.primary-button { display: grid; min-width: 112px; height: 36px; place-items: center; margin-top: 17px; padding: 0 16px; border-radius: 19px; background: #c21850; box-shadow: 0 6px 15px rgb(194 24 80 / 18%); color: #fff; font-size: 10px; font-weight: 700; }
 .inline-error { margin: 0 0 12px; padding: 9px 11px; border-radius: 9px; background: #fff3ee; color: #ae6248; font-size: 10px; }
 </style>

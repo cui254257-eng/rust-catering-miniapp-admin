@@ -1,14 +1,33 @@
+use std::net::IpAddr;
+
+use sqlx::mysql::{MySqlConnectOptions, MySqlSslMode};
 use sqlx::{MySqlPool, mysql::MySqlPoolOptions};
 
 pub(crate) async fn connect(database_url: &str) -> Result<MySqlPool, sqlx::Error> {
+    let options: MySqlConnectOptions = database_url.parse()?;
+    // Loopback connections do not need TLS; local MySQL may fail SQLx's TLS handshake.
+    let options = if matches!(options.get_ssl_mode(), MySqlSslMode::Preferred)
+        && is_loopback_host(options.get_host())
+    {
+        options.ssl_mode(MySqlSslMode::Disabled)
+    } else {
+        options
+    };
     let pool = MySqlPoolOptions::new()
         .max_connections(10)
-        .connect(database_url)
+        .connect_with(options)
         .await?;
 
     initialize_schema(&pool).await?;
     remove_default_demo_data(&pool).await?;
     Ok(pool)
+}
+
+fn is_loopback_host(host: &str) -> bool {
+    host.eq_ignore_ascii_case("localhost")
+        || host
+            .parse::<IpAddr>()
+            .is_ok_and(|address| address.is_loopback())
 }
 
 async fn initialize_schema(pool: &MySqlPool) -> Result<(), sqlx::Error> {
@@ -176,9 +195,13 @@ async fn initialize_schema(pool: &MySqlPool) -> Result<(), sqlx::Error> {
             dine_in_enabled BOOLEAN NOT NULL DEFAULT TRUE,
             takeaway_enabled BOOLEAN NOT NULL DEFAULT TRUE,
             delivery_enabled BOOLEAN NOT NULL DEFAULT TRUE,
-            delivery_radius_km DOUBLE NOT NULL DEFAULT 3,
+            delivery_radius_km DOUBLE NOT NULL DEFAULT 20,
+            delivery_free_radius_km DOUBLE NOT NULL DEFAULT 3,
             delivery_minimum_amount DOUBLE NOT NULL DEFAULT 0,
             delivery_fee DOUBLE NOT NULL DEFAULT 0,
+            delivery_fee_per_km DOUBLE NOT NULL DEFAULT 2,
+            store_latitude DOUBLE NULL,
+            store_longitude DOUBLE NULL,
             updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci",
     )
@@ -197,12 +220,42 @@ async fn initialize_schema(pool: &MySqlPool) -> Result<(), sqlx::Error> {
             .await?;
     }
 
+    let mut added_delivery_pricing = false;
+    for (column_name, definition) in [
+        ("delivery_free_radius_km", "DOUBLE NOT NULL DEFAULT 3"),
+        ("delivery_fee_per_km", "DOUBLE NOT NULL DEFAULT 2"),
+        ("store_latitude", "DOUBLE NULL"),
+        ("store_longitude", "DOUBLE NULL"),
+    ] {
+        let exists: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS \
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'restaurant_settings' AND COLUMN_NAME = ?",
+        )
+        .bind(column_name)
+        .fetch_one(pool)
+        .await?;
+        if exists == 0 {
+            sqlx::query(&format!(
+                "ALTER TABLE restaurant_settings ADD COLUMN {column_name} {definition}"
+            ))
+            .execute(pool)
+            .await?;
+            added_delivery_pricing = true;
+        }
+    }
+    if added_delivery_pricing {
+        // The old default cap was 3km; widen it so the new distance-based pricing can apply.
+        sqlx::query("UPDATE restaurant_settings SET delivery_radius_km = 20 WHERE id = 1 AND delivery_radius_km = 3")
+            .execute(pool)
+            .await?;
+    }
+
     // Seed only once so restarting the API never overwrites the restaurant's edited settings.
     sqlx::query(
         "INSERT IGNORE INTO restaurant_settings \
          (id, restaurant_name, announcement, announcement_enabled, business_hours, contact_phone, store_address, is_open, \
           dine_in_enabled, takeaway_enabled, delivery_enabled, delivery_radius_km, delivery_minimum_amount, delivery_fee) \
-         VALUES (1, '好味小馆', '', FALSE, '10:00-14:00, 17:00-22:00', '', '', TRUE, TRUE, TRUE, TRUE, 3, 0, 0)",
+         VALUES (1, 'MONGA·艋舺', '', FALSE, '10:00-14:00, 17:00-22:00', '', '', TRUE, TRUE, TRUE, TRUE, 20, 0, 0)",
     )
     .execute(pool)
     .await?;
@@ -266,6 +319,7 @@ async fn initialize_schema(pool: &MySqlPool) -> Result<(), sqlx::Error> {
         ("avatar_mime_type", "VARCHAR(32) NULL"),
         ("avatar_base64", "LONGTEXT NULL"),
         ("points", "BIGINT NOT NULL DEFAULT 0"),
+        ("balance_cents", "BIGINT NOT NULL DEFAULT 0"),
     ] {
         let exists: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM information_schema.COLUMNS \
@@ -385,6 +439,7 @@ async fn initialize_schema(pool: &MySqlPool) -> Result<(), sqlx::Error> {
             delivery_address VARCHAR(500) NULL,
             status VARCHAR(24) NOT NULL,
             payment_status VARCHAR(16) NOT NULL,
+            payment_method VARCHAR(24) NOT NULL DEFAULT 'offline',
             expires_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
             stock_released BOOLEAN NOT NULL DEFAULT FALSE,
             subtotal_cents BIGINT NOT NULL,
@@ -404,6 +459,7 @@ async fn initialize_schema(pool: &MySqlPool) -> Result<(), sqlx::Error> {
     for (column_name, definition) in [
         ("discount_cents", "BIGINT NOT NULL DEFAULT 0"),
         ("points_earned", "BIGINT NOT NULL DEFAULT 0"),
+        ("payment_method", "VARCHAR(24) NOT NULL DEFAULT 'offline'"),
         (
             "expires_at",
             "DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3)",
@@ -475,6 +531,28 @@ async fn initialize_schema(pool: &MySqlPool) -> Result<(), sqlx::Error> {
             .await?;
         }
     }
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS customer_wallet_transactions (
+            id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+            customer_id BIGINT NOT NULL,
+            transaction_type VARCHAR(24) NOT NULL,
+            paid_cents BIGINT NOT NULL DEFAULT 0,
+            bonus_cents BIGINT NOT NULL DEFAULT 0,
+            delta_cents BIGINT NOT NULL,
+            balance_after_cents BIGINT NOT NULL,
+            order_number VARCHAR(32) NULL,
+            request_key VARCHAR(64) NULL,
+            note VARCHAR(255) NOT NULL DEFAULT '',
+            created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+            UNIQUE KEY uq_customer_wallet_order (order_number),
+            UNIQUE KEY uq_customer_wallet_request (customer_id, request_key),
+            INDEX idx_customer_wallet_history (customer_id, created_at, id),
+            CONSTRAINT fk_customer_wallet_customer FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci",
+    )
+    .execute(pool)
+    .await?;
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS app_migrations (

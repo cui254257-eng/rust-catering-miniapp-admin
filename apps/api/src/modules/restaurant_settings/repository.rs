@@ -17,9 +17,9 @@ impl RestaurantSettingsRepository {
 
     pub(crate) async fn get(&self) -> Result<RestaurantSettings, sqlx::Error> {
         sqlx::query_as::<_, RestaurantSettings>(
-            "SELECT restaurant_name, business_hours, contact_phone, store_address, \
-             is_open, dine_in_enabled, takeaway_enabled, delivery_enabled, delivery_radius_km, \
-             delivery_minimum_amount, delivery_fee FROM restaurant_settings WHERE id = 1",
+            "SELECT restaurant_name, business_hours, contact_phone, store_address, store_latitude, store_longitude, \
+             is_open, dine_in_enabled, takeaway_enabled, delivery_enabled, delivery_radius_km, delivery_free_radius_km, \
+             delivery_minimum_amount, delivery_fee_per_km FROM restaurant_settings WHERE id = 1",
         )
         .fetch_one(&self.pool)
         .await
@@ -31,21 +31,25 @@ impl RestaurantSettingsRepository {
     ) -> Result<RestaurantSettings, sqlx::Error> {
         sqlx::query(
             "UPDATE restaurant_settings SET restaurant_name = ?, business_hours = ?, \
-             contact_phone = ?, store_address = ?, is_open = ?, dine_in_enabled = ?, takeaway_enabled = ?, \
-             delivery_enabled = ?, delivery_radius_km = ?, delivery_minimum_amount = ?, delivery_fee = ? \
+             contact_phone = ?, store_address = ?, store_latitude = ?, store_longitude = ?, \
+             is_open = ?, dine_in_enabled = ?, takeaway_enabled = ?, delivery_enabled = ?, \
+             delivery_radius_km = ?, delivery_free_radius_km = ?, delivery_minimum_amount = ?, delivery_fee_per_km = ? \
              WHERE id = 1",
         )
         .bind(input.restaurant_name.trim())
         .bind(input.business_hours.trim())
         .bind(input.contact_phone.trim())
         .bind(input.store_address.trim())
+        .bind(input.store_latitude)
+        .bind(input.store_longitude)
         .bind(input.is_open)
         .bind(input.dine_in_enabled)
         .bind(input.takeaway_enabled)
         .bind(input.delivery_enabled)
         .bind(input.delivery_radius_km)
+        .bind(input.delivery_free_radius_km)
         .bind(input.delivery_minimum_amount)
-        .bind(input.delivery_fee)
+        .bind(input.delivery_fee_per_km)
         .execute(&self.pool)
         .await?;
 

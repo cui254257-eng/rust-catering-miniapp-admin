@@ -56,13 +56,25 @@ function openOrders() {
   uni.navigateTo({ url: "/subpackages/account/pages/orders/index" });
 }
 
+function openMembership() {
+  uni.navigateTo({ url: "/subpackages/account/pages/membership/index" });
+}
+
+function openWallet() {
+  if (!uni.getStorageSync("customer-token")) {
+    openLogin();
+    return;
+  }
+  uni.navigateTo({ url: "/subpackages/account/pages/wallet/index" });
+}
+
 function confirmLogout() {
   if (loggingOut.value) return;
   uni.showModal({
     title: "退出登录",
     content: "确定退出当前微信账号吗？",
     confirmText: "退出登录",
-    confirmColor: "#a35e43",
+    confirmColor: "#c21850",
     success: async ({ confirm }) => {
       if (!confirm) return;
 
@@ -87,11 +99,6 @@ onShow(refreshSession);
 
 <template>
   <view class="profile-page">
-    <view class="page-heading">
-      <text class="page-kicker">HAOWEI · DINING</text>
-      <!-- <text class="page-title">我的</text> -->
-    </view>
-
     <view class="profile-card" :class="{ 'guest-card': !loggedIn }">
       <view class="avatar-wrap">
         <view class="avatar-glow" />
@@ -107,30 +114,47 @@ onShow(refreshSession);
       </view>
       <view class="profile-copy">
         <text class="profile-name">{{
-          loggedIn ? profile?.nickname || "微信用户" : "欢迎来到好味小馆"
+          loggedIn ? profile?.nickname || "微信用户" : "欢迎来到 MONGA·艋舺"
         }}</text>
         <text class="profile-status">{{
-          loggedIn
-            ? checking
-              ? "正在确认登录状态"
-              : "微信快捷登录"
-            : "登录后继续点餐"
+          loggedIn ? (checking ? "正在确认登录状态" : "") : "登录后继续点餐"
         }}</text>
       </view>
       <view v-if="!loggedIn" class="login-button" @tap="openLogin">登录</view>
       <view v-else class="member-mark"
-        ><text>V{{ profile?.member_level ?? 1 }}</text><text class="member-star">✦</text></view
+        ><text>V{{ profile?.member_level ?? 1 }}</text
+        ><text class="member-star">✦</text></view
       >
     </view>
 
-    <view v-if="loggedIn && profile" class="membership-card">
+    <view
+      v-if="loggedIn && profile"
+      class="membership-card"
+      @tap="openMembership"
+    >
       <view class="membership-top">
         <text class="membership-level">V{{ profile.member_level }} 会员</text>
-        <text class="membership-benefit">{{ (profile.discount_rate ?? 1) < 1 ? `${((profile.discount_rate ?? 1) * 10).toFixed(1)} 折` : "暂无折扣" }}</text>
+        <view class="membership-top-right">
+          <text class="membership-benefit">{{
+            (profile.discount_rate ?? 1) < 1
+              ? `${((profile.discount_rate ?? 1) * 10).toFixed(1)} 折`
+              : "暂无折扣"
+          }}</text>
+          <text class="membership-arrow">›</text>
+        </view>
       </view>
-      <view class="membership-points"><text>当前积分</text><strong>{{ profile.points ?? 0 }}</strong></view>
-      <view v-if="profile.points_to_next_level != null" class="membership-progress-copy">再得 {{ profile.points_to_next_level }} 积分升级 V{{ profile.next_level }}</view>
+      <view class="membership-points"
+        ><text>当前积分</text><strong>{{ profile.points ?? 0 }}</strong></view
+      >
+      <view
+        v-if="profile.points_to_next_level != null"
+        class="membership-progress-copy"
+        >再得 {{ profile.points_to_next_level }} 积分升级 V{{
+          profile.next_level
+        }}</view
+      >
       <view v-else class="membership-progress-copy">已达最高等级</view>
+      <view class="membership-link">查看等级与升级详情 <text>→</text></view>
     </view>
 
     <view class="service-section">
@@ -141,7 +165,7 @@ onShow(refreshSession);
       <view class="service-card">
         <view class="service-row" @tap="openOrders">
           <view class="service-icon order-icon">
-            <text>单</text>
+            <image class="service-icon-svg" src="/static/icons/order.svg" mode="aspectFit" />
           </view>
           <view class="service-copy">
             <text class="service-title">我的订单</text>
@@ -151,9 +175,23 @@ onShow(refreshSession);
         </view>
         <view class="service-divider" />
 
+        <view v-if="loggedIn && profile" class="service-row" @tap="openWallet">
+          <view class="service-icon wallet-icon">¥</view>
+          <view class="service-copy">
+            <text class="service-title">储值余额</text>
+            <text class="service-caption">当前 ¥{{ ((profile.balance_cents ?? 0) / 100).toFixed(2) }} · 查看储值明细</text>
+          </view>
+          <wd-icon name="arrow-right" size="16px" color="#b6aa9d" />
+        </view>
+        <view v-if="loggedIn && profile" class="service-divider" />
+
         <view v-if="loggedIn" class="service-row" @tap="openProfileEdit">
           <view class="service-icon profile-icon">
-            <image class="service-icon-svg" src="/static/icons/profile.svg" mode="aspectFit" />
+            <image
+              class="service-icon-svg"
+              src="/static/icons/profile.svg"
+              mode="aspectFit"
+            />
           </view>
           <view class="service-copy">
             <text class="service-title">个人资料</text>
@@ -166,7 +204,11 @@ onShow(refreshSession);
         <view class="service-divider" />
         <view class="service-row" @tap="openAddresses">
           <view class="service-icon address-icon">
-            <image class="service-icon-svg" src="/static/icons/address.svg" mode="aspectFit" />
+            <image
+              class="service-icon-svg"
+              src="/static/icons/address.svg"
+              mode="aspectFit"
+            />
           </view>
           <view class="service-copy">
             <text class="service-title">收货地址</text>
@@ -187,7 +229,7 @@ onShow(refreshSession);
     </view>
 
     <view class="footer-stamp"
-      ><view class="stamp-line" />好味小馆 · 用心做好每一餐<view
+      ><view class="stamp-line" />MONGA·艋舺 · 用心做好每一餐<view
         class="stamp-line"
     /></view>
   </view>
@@ -198,7 +240,7 @@ onShow(refreshSession);
   min-height: 100vh;
   box-sizing: border-box;
   padding: calc(env(safe-area-inset-top) + 18px) 18px 32px;
-  background: #f5f2ec;
+  background: #faf6f7;
   color: #34291f;
 }
 .page-heading {
@@ -230,8 +272,8 @@ onShow(refreshSession);
   padding: 18px 17px;
   border: 1px solid rgb(255 255 255 / 50%);
   border-radius: 22px;
-  background: linear-gradient(118deg, #e5ad82, #f0c6a3 58%, #f4d8bd);
-  box-shadow: 0 10px 26px rgb(105 68 42 / 10%);
+  background: linear-gradient(118deg, #761329, #a81746 58%, #d6336c);
+  box-shadow: 0 10px 26px rgb(118 19 41 / 18%);
 }
 .profile-card::after {
   position: absolute;
@@ -243,13 +285,63 @@ onShow(refreshSession);
   border-radius: 50%;
   content: "";
 }
-.membership-card { margin: 12px 0 24px; padding: 16px 18px; border: 1px solid #e9dac4; border-radius: 18px; background: linear-gradient(125deg, #fffaf1, #f5e8d3); box-shadow: 0 7px 22px rgb(54 41 29 / 4%); }
-.membership-top, .membership-points { display: flex; align-items: center; justify-content: space-between; }
-.membership-level { color: #795530; font-size: 12px; font-weight: 750; }
-.membership-benefit { color: #a35e43; font-size: 11px; font-weight: 700; }
-.membership-points { margin-top: 13px; color: #897d6c; font-size: 10px; }
-.membership-points strong { color: #4d4337; font-size: 23px; }
-.membership-progress-copy { margin-top: 7px; color: #a39787; font-size: 9px; }
+.membership-card {
+  margin: 12px 0 24px;
+  padding: 16px 18px;
+  border: 1px solid #e9dac4;
+  border-radius: 18px;
+  background: linear-gradient(125deg, #fffaf1, #f5e8d3);
+  box-shadow: 0 7px 22px rgb(54 41 29 / 4%);
+}
+.membership-top,
+.membership-points {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.membership-top-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.membership-arrow {
+  color: #b39a80;
+  font-size: 20px;
+  line-height: 1;
+}
+.membership-level {
+  color: #795530;
+  font-size: 12px;
+  font-weight: 750;
+}
+.membership-benefit {
+  color: #a35e43;
+  font-size: 11px;
+  font-weight: 700;
+}
+.membership-points {
+  margin-top: 13px;
+  color: #897d6c;
+  font-size: 10px;
+}
+.membership-points strong {
+  color: #4d4337;
+  font-size: 23px;
+}
+.membership-progress-copy {
+  margin-top: 7px;
+  color: #a39787;
+  font-size: 9px;
+}
+.membership-link {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 13px;
+  padding-top: 11px;
+  border-top: 1px solid rgb(188 159 124 / 20%);
+  color: #927353;
+  font-size: 10px;
+}
 .guest-card {
   min-height: 156px;
   align-items: flex-start;
@@ -280,7 +372,7 @@ onShow(refreshSession);
   border-radius: 50%;
   background: #fff5e8;
   box-shadow: 0 3px 9px rgb(86 55 33 / 12%);
-  color: #aa6245;
+  color: #c21850;
   font-family: serif;
   font-size: 23px;
   font-weight: 700;
@@ -304,14 +396,14 @@ onShow(refreshSession);
 }
 .profile-name {
   overflow: hidden;
-  color: #38271e;
+  color: #fff;
   font-size: 16px;
   font-weight: 750;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .profile-status {
-  color: #805f49;
+  color: #ffe5ed;
   font-size: 10px;
   letter-spacing: 0.2px;
 }
@@ -330,7 +422,7 @@ onShow(refreshSession);
   border-radius: 18px;
   background: #fffaf3;
   box-shadow: 0 4px 10px rgb(104 64 39 / 10%);
-  color: #9a5638;
+  color: #9b123f;
   font-size: 11px;
   font-weight: 700;
   line-height: 34px;
@@ -350,11 +442,11 @@ onShow(refreshSession);
   padding: 5px 8px;
   border: 1px solid rgb(255 250 243 / 60%);
   border-radius: 12px;
-  color: #8c5a40;
+  color: #fff;
   font-size: 9px;
 }
 .member-star {
-  color: #aa6748;
+  color: #ffd6e3;
 }
 .service-section {
   margin-top: 27px;
@@ -420,6 +512,12 @@ onShow(refreshSession);
   color: #ad6948;
   font-family: inherit;
   font-size: 14px;
+}
+.wallet-icon {
+  background: #eaf1ed;
+  color: #557d69;
+  font-family: inherit;
+  font-size: 17px;
 }
 .service-copy {
   display: flex;

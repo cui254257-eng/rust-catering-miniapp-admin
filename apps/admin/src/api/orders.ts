@@ -22,6 +22,7 @@ export interface AdminOrder {
   delivery_address: string | null
   status: string
   payment_status: string
+  payment_method: 'wallet' | 'offline'
   subtotal_cents: number
   discount_cents: number
   delivery_fee_cents: number

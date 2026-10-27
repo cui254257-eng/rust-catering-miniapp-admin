@@ -6,6 +6,7 @@ export interface CustomerProfile {
   avatar_data_url: string | null
   member_level: number
   points: number
+  balance_cents: number
   discount_rate: number
   next_level: number | null
   next_level_points: number | null

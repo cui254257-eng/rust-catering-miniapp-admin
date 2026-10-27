@@ -15,7 +15,11 @@ onLoad((query) => {
 })
 
 function openEditor(id?: number) {
-  uni.navigateTo({ url: id ? `/subpackages/account/pages/address/edit?id=${id}` : '/subpackages/account/pages/address/edit' })
+  const selectionQuery = selecting.value ? '&select=1' : ''
+  const editorUrl = id
+    ? `/subpackages/account/pages/address/edit?id=${id}${selectionQuery}`
+    : `/subpackages/account/pages/address/edit${selecting.value ? '?select=1' : ''}`
+  uni.navigateTo({ url: editorUrl })
 }
 
 function chooseAddress(address: Address) {
@@ -48,7 +52,7 @@ function removeAddress(address: Address) {
   uni.showModal({
     title: '删除收货地址',
     content: `确定删除 ${address.recipient_name} 的收货地址吗？`,
-    confirmColor: '#b86a49',
+    confirmColor: '#c21850',
     success: async (result) => {
       if (!result.confirm) return
       try {
@@ -130,17 +134,17 @@ onShow(() => {
 .recipient-line { display: flex; align-items: center; gap: 11px; }
 .recipient-name { color: #312d27; font-size: 15px; font-weight: 700; }
 .recipient-phone { color: #716d65; font-size: 12px; }
-.default-tag { padding: 3px 7px; border-radius: 6px; background: #f9eee6; color: #b86a49; font-size: 10px; }
+.default-tag { padding: 3px 7px; border-radius: 6px; background: #fceaf0; color: #9b123f; font-size: 10px; }
 .selected-tag { margin-left: auto; padding: 3px 7px; border-radius: 6px; background: #eaf4e7; color: #56824e; font-size: 10px; }
 .address-detail { display: block; margin-top: 10px; color: #77736b; font-size: 12px; line-height: 1.6; }
 .address-actions { display: flex; align-items: center; justify-content: flex-end; gap: 9px; padding: 10px 16px 12px; border-top: 1px solid #f3f1ed; color: #89857d; font-size: 11px; }
 .edit-action { color: #706b62; }
 .delete-action { color: #b8765c; }
 .action-separator { color: #d0ccc3; }
-.add-button { display: flex; align-items: center; justify-content: center; gap: 7px; margin-top: 17px; padding: 13px; border-radius: 13px; background: #b86a49; color: #fff; font-size: 13px; font-weight: 600; box-shadow: 0 7px 16px rgb(184 106 73 / 18%); }
+.add-button { display: flex; align-items: center; justify-content: center; gap: 7px; margin-top: 17px; padding: 13px; border-radius: 13px; background: #c21850; color: #fff; font-size: 13px; font-weight: 600; box-shadow: 0 7px 16px rgb(194 24 80 / 18%); }
 .add-symbol { font-size: 18px; line-height: 1; }
 .empty-card, .state-card { display: flex; align-items: center; flex-direction: column; margin-top: 16px; padding: 35px 22px; border-radius: 16px; background: #fff; text-align: center; }
-.empty-mark { display: grid; width: 52px; height: 52px; place-items: center; border-radius: 50%; background: #f8f1e9; color: #b86a49; font-size: 28px; }
+.empty-mark { display: grid; width: 52px; height: 52px; place-items: center; border-radius: 50%; background: #fceaf0; color: #c21850; font-size: 28px; }
 .empty-title, .state-title { margin-top: 14px; color: #454139; font-size: 14px; font-weight: 700; }
 .empty-copy, .state-copy { margin-top: 7px; color: #969188; font-size: 11px; line-height: 1.6; }
 .state-card { color: #969188; font-size: 12px; line-height: 1.6; }

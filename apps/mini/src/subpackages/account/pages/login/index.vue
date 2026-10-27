@@ -19,7 +19,7 @@ async function wechatLogin() {
       title: '微信登录失败',
       content: error instanceof Error ? error.message : '请稍后重试',
       showCancel: false,
-      confirmColor: '#b86a49',
+      confirmColor: '#c21850',
     })
   } finally {
     loading.value = false
@@ -33,7 +33,7 @@ async function wechatLogin() {
     <view class="glow glow-bottom" />
 
     <view class="login-content">
-      <view class="brand-icon" aria-label="好味小馆">
+      <view class="brand-icon" aria-label="MONGA·艋舺">
         <view class="icon-halo" />
         <view class="icon-plate"><view class="icon-center" /></view>
         <view class="icon-steam steam-one" />
@@ -41,7 +41,7 @@ async function wechatLogin() {
         <view class="icon-leaf">✦</view>
       </view>
 
-      <text class="brand-name">好味小馆</text>
+      <text class="brand-name">MONGA·艋舺</text>
       <text class="page-title">欢迎登录</text>
       <text class="page-caption">选择登录方式</text>
 
@@ -73,27 +73,27 @@ async function wechatLogin() {
 
     <view class="page-footer">
       <view class="footer-line" />
-      <text>好味小馆 · 用心做好每一餐</text>
+      <text>MONGA·艋舺 · 用心做好每一餐</text>
       <view class="footer-line" />
     </view>
   </view>
 </template>
 
 <style scoped>
-.login-page { position: relative; display: flex; min-height: 100vh; box-sizing: border-box; overflow: hidden; align-items: center; justify-content: center; padding: 28px 24px calc(env(safe-area-inset-bottom) + 28px); background: #f7f3ed; color: #382b21; }
+.login-page { position: relative; display: flex; min-height: 100vh; box-sizing: border-box; overflow: hidden; align-items: center; justify-content: center; padding: 28px 24px calc(env(safe-area-inset-bottom) + 28px); background: #faf6f7; color: #382b21; }
 .glow { position: absolute; width: 260px; height: 260px; border-radius: 50%; pointer-events: none; }
 .glow-top { top: -160px; right: -95px; background: radial-gradient(circle, rgb(226 179 143 / 23%), rgb(226 179 143 / 0%) 70%); }
 .glow-bottom { bottom: -155px; left: -105px; background: radial-gradient(circle, rgb(198 211 181 / 24%), rgb(198 211 181 / 0%) 70%); }
 .login-content { position: relative; z-index: 1; display: flex; width: 100%; max-width: 390px; align-items: center; flex-direction: column; margin-top: -18px; }
 .brand-icon { position: relative; display: grid; width: 100px; height: 100px; place-items: center; margin-bottom: 17px; }
-.icon-halo { position: absolute; inset: 0; border: 1px solid #ead7c3; border-radius: 34px; background: linear-gradient(145deg, #fffaf3, #f5e8d8); box-shadow: 0 12px 25px rgb(112 77 49 / 9%); transform: rotate(-7deg); }
-.icon-plate { position: relative; display: grid; width: 53px; height: 53px; place-items: center; border: 3px solid #b86a49; border-radius: 50%; background: #fffaf4; box-shadow: inset 0 0 0 4px #f3e1d0; }
+.icon-halo { position: absolute; inset: 0; border: 1px solid #f1cbd7; border-radius: 34px; background: linear-gradient(145deg, #fff, #fceaf0); box-shadow: 0 12px 25px rgb(118 19 41 / 9%); transform: rotate(-7deg); }
+.icon-plate { position: relative; display: grid; width: 53px; height: 53px; place-items: center; border: 3px solid #c21850; border-radius: 50%; background: #fff; box-shadow: inset 0 0 0 4px #fceaf0; }
 .icon-center { width: 22px; height: 22px; border: 2px solid #d89a73; border-radius: 50%; background: #f7e8d8; }
-.icon-steam { position: absolute; top: 15px; width: 5px; height: 13px; border-left: 2px solid #b86a49; border-radius: 50%; transform: rotate(18deg); }
+.icon-steam { position: absolute; top: 15px; width: 5px; height: 13px; border-left: 2px solid #c21850; border-radius: 50%; transform: rotate(18deg); }
 .steam-one { left: 39px; }
 .steam-two { left: 54px; top: 12px; height: 16px; transform: rotate(-17deg); }
 .icon-leaf { position: absolute; right: 17px; bottom: 18px; color: #7e906b; font-size: 13px; }
-.brand-name { color: #a86a4b; font-size: 11px; font-weight: 700; letter-spacing: 3px; }
+.brand-name { color: #9b123f; font-size: 11px; font-weight: 700; letter-spacing: 1.8px; }
 .page-title { margin-top: 12px; color: #392c22; font-family: serif; font-size: 25px; font-weight: 750; letter-spacing: 1px; }
 .page-caption { margin-top: 7px; color: #9a9084; font-size: 11px; }
 .login-methods { display: flex; width: 100%; flex-direction: column; gap: 12px; margin-top: 32px; }

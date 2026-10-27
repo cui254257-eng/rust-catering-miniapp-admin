@@ -34,6 +34,7 @@ pub(crate) struct AdminCustomer {
     pub(crate) id: i64,
     pub(crate) nickname: String,
     pub(crate) points: i64,
+    pub(crate) balance_cents: i64,
     pub(crate) member_level: i64,
     pub(crate) discount_rate: f64,
     pub(crate) order_count: i64,

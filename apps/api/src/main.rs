@@ -12,6 +12,7 @@ use crate::{app::create_router, config::Settings, database::connect};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    dotenvy::from_filename(".env.local").ok();
     dotenvy::dotenv().ok();
     init_tracing();
 
@@ -38,6 +39,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         settings.admin_api_token,
         settings.admin_username,
         settings.admin_password,
+        settings.amap_js_api_key,
+        settings.amap_js_security_code,
+        settings.amap_web_service_api_key,
     );
     let address = SocketAddr::new(settings.host.parse()?, settings.port);
     let listener = tokio::net::TcpListener::bind(address).await?;

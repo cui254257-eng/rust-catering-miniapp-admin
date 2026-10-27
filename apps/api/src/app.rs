@@ -11,6 +11,7 @@ use tower_http::{cors::CorsLayer, services::ServeDir, trace::TraceLayer};
 
 use crate::modules::{
     addresses::{AddressesService, routes as address_routes},
+    amap::{AmapService, routes as amap_routes},
     auth::{AuthService, routes as auth_routes},
     banners::{BannersService, routes as banner_routes},
     home_features::{HomeFeaturesService, routes as home_feature_routes},
@@ -18,6 +19,7 @@ use crate::modules::{
     orders::{OrdersService, routes as order_routes},
     products::{ProductsService, routes as product_routes},
     restaurant_settings::{RestaurantSettingsService, routes as restaurant_settings_routes},
+    wallet::{WalletService, routes as wallet_routes},
 };
 
 /// Application-wide dependencies shared with request handlers.
@@ -31,9 +33,11 @@ pub(crate) struct AppState {
     pub(crate) restaurant_settings: RestaurantSettingsService,
     pub(crate) orders: OrdersService,
     pub(crate) membership: MembershipService,
+    pub(crate) wallet: WalletService,
     pub(crate) admin_api_token: Option<String>,
     pub(crate) admin_username: String,
     pub(crate) admin_password: String,
+    pub(crate) amap: AmapService,
 }
 
 impl AppState {
@@ -80,7 +84,15 @@ pub(crate) fn create_router(
     admin_api_token: Option<String>,
     admin_username: String,
     admin_password: String,
+    amap_js_api_key: String,
+    amap_js_security_code: String,
+    amap_web_service_api_key: String,
 ) -> Router {
+    let amap = AmapService::new(
+        amap_js_api_key,
+        amap_js_security_code,
+        amap_web_service_api_key,
+    );
     let state = AppState {
         products: ProductsService::new(pool.clone()),
         banners: BannersService::new(pool.clone()),
@@ -93,11 +105,13 @@ pub(crate) fn create_router(
         ),
         addresses: AddressesService::new(pool.clone()),
         restaurant_settings: RestaurantSettingsService::new(pool.clone()),
-        orders: OrdersService::new(pool.clone()),
-        membership: MembershipService::new(pool),
+        orders: OrdersService::new(pool.clone(), amap.clone()),
+        membership: MembershipService::new(pool.clone()),
+        wallet: WalletService::new(pool.clone()),
         admin_api_token,
         admin_username,
         admin_password,
+        amap,
     };
     let assets_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("assets");
 
@@ -111,6 +125,8 @@ pub(crate) fn create_router(
         .merge(restaurant_settings_routes())
         .merge(order_routes())
         .merge(membership_routes())
+        .merge(wallet_routes())
+        .merge(amap_routes())
         .nest_service("/assets", ServeDir::new(assets_dir))
         .with_state(state)
         .layer(CorsLayer::permissive())
